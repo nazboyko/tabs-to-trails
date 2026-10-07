@@ -29,8 +29,8 @@ export interface Section {
 /** Sections longer than this are split by paragraph groups. */
 export const MAX_SECTION_WORDS = 1200;
 
-const FENCE = /^ {0,3}(`{3,}|~{3,})\s*([\w+#.-]*)/;
-const HEADING = /^ {0,3}(#{1,6})\s+(.*?)\s*#*\s*$/;
+/** Headings longer than this are not headings; the cap also bounds the work per line. */
+const MAX_HEADING_CHARS = 300;
 const RULE = /^ {0,3}([-*_])(\s*\1){2,}\s*$/;
 const LIST_ITEM = /^(\s*)([-*+]|\d{1,3}[.)])\s+(.*)$/;
 const QUOTE = /^ {0,3}>\s?(.*)$/;
@@ -56,6 +56,40 @@ const ENTITIES: Record<string, string> = {
   '&hellip;': '...',
 };
 
+interface Fence {
+  indent: number;
+  char: string;
+  length: number;
+  lang?: string;
+}
+
+/** An opening code fence (CommonMark: a backtick fence's info string has no backtick). */
+export function openFence(line: string): Fence | null {
+  const m = line.match(/^([ \t]*)(`{3,}|~{3,})(.*)$/);
+  if (!m) return null;
+  const marker = m[2]!;
+  const info = m[3]!;
+  if (marker[0] === '`' && info.includes('`')) return null;
+  const lang = info.trim().split(/\s+/)[0]?.replace(/[^\w+#.-]/g, '');
+  return { indent: m[1]!.length, char: marker[0]!, length: marker.length, lang: lang || undefined };
+}
+
+function closesFence(line: string, fence: Fence): boolean {
+  const t = line.trim();
+  return t.length >= fence.length && [...t].every((c) => c === fence.char);
+}
+
+/** An ATX heading, parsed without backtracking regexes. */
+export function parseHeading(line: string): { level: number; text: string } | null {
+  if (line.length > MAX_HEADING_CHARS) return null;
+  const m = line.match(/^ {0,3}(#{1,6})(?:[ \t]+(.*))?$/);
+  if (!m) return null;
+  let text = (m[2] ?? '').trimEnd();
+  const closing = text.match(/(?:^|[ \t])#+$/);
+  if (closing) text = text.slice(0, closing.index).trimEnd();
+  return text ? { level: m[1]!.length, text } : null;
+}
+
 function hostOf(url: string): string {
   try {
     return new URL(url).hostname.replace(/^www\./, '');
@@ -65,7 +99,11 @@ function hostOf(url: string): string {
 }
 
 /** A markdown link whose text may hold one level of brackets and whose URL may hold parentheses. */
-const LINK = /\[((?:\\.|\[[^\]]*\]|[^\]\\])+)\]\((?:[^()\s]|\([^()\s]*\))*(?:\s+"[^"]*")?\)/g;
+const LINK = /\[((?:\\.|\[[^[\]]{0,200}\]|[^[\]\\]){1,400})\]\((?:[^()\s]|\([^()\s]{0,200}\)){0,2000}(?:\s+"[^"]{0,300}")?\)/g;
+const REF_LINK = /\[((?:\\.|[^[\]\\]){1,400})\]\[[^[\]]{0,100}\]/g;
+/** Real HTML tags only, so "n <k the loop" and "x > 3" keep their words. */
+const TAG =
+  /<\/?(?:a|abbr|b|blockquote|br|button|center|cite|code|dd|del|details|div|dl|dt|em|figcaption|figure|font|h[1-6]|hr|i|iframe|img|input|ins|kbd|label|li|mark|ol|p|picture|pre|q|s|section|small|source|span|strong|sub|summary|sup|table|tbody|td|th|thead|tr|u|ul|video)\b[^<>]{0,300}>/gi;
 /** Reference links into the same page: [[1]](#cite_note-1), [\[a\]](#note-a). */
 const CITATION_LINK = /\[(?:\\?\[[^\]]{1,24}\\?\]|\^?\d{1,3})\]\(#[^)]*\)/g;
 const EDIT_LINK = /\\?\[\[edit\]\([^)]*\)\\?\]/gi;
@@ -81,16 +119,16 @@ export function plainText(md: string): string {
   s = s.replace(/\[\^[^\]]+\]/g, '');
   s = s.replace(CITATION_LINK, '').replace(EDIT_LINK, '');
   s = s.replace(LINK, '$1');
-  s = s.replace(/\[((?:\\.|[^\]\\])+)\]\[[^\]]*\]/g, '$1');
+  s = s.replace(REF_LINK, '$1');
   s = s.replace(/<(https?:\/\/[^>\s]+)>/g, (_, u: string) => hostOf(u));
-  s = s.replace(/<\/?[a-zA-Z][^>]*>/g, ' ');
+  s = s.replace(TAG, ' ');
   s = s.replace(/(^|[\s(])(https?:\/\/[^\s)]+)/g, (_, pre: string, u: string) => `${pre}${hostOf(u)}`);
-  s = s.replace(/`+([^`]+?)`+/g, '$1');
-  s = s.replace(/\*\*(.+?)\*\*/g, '$1');
-  s = s.replace(/__(.+?)__/g, '$1');
-  s = s.replace(/(^|[^\w*])\*(?!\s)(.+?)(?<!\s)\*(?!\w)/g, '$1$2');
-  s = s.replace(/(^|[^\w])_(?!\s)(.+?)(?<!\s)_(?!\w)/g, '$1$2');
-  s = s.replace(/~~(.+?)~~/g, '$1');
+  s = s.replace(/`+([^`]{1,500})`+/g, '$1');
+  s = s.replace(/\*\*(.{1,500}?)\*\*/g, '$1');
+  s = s.replace(/__(.{1,500}?)__/g, '$1');
+  s = s.replace(/(^|[^\w*])\*(?!\s)(.{1,500}?)(?<!\s)\*(?!\w)/g, '$1$2');
+  s = s.replace(/(^|[^\w])_(?!\s)(.{1,500}?)(?<!\s)_(?!\w)/g, '$1$2');
+  s = s.replace(/~~(.{1,500}?)~~/g, '$1');
   s = s.replace(/&[a-z#0-9]+;/gi, (e) => ENTITIES[e.toLowerCase()] ?? ' ');
   s = s.replace(/\\([\\`*_{}[\]()#+\-.!|>])/g, '$1');
   s = s.replace(CITATION, '');
@@ -111,8 +149,8 @@ function isBlank(line: string): boolean {
 
 function startsBlock(line: string, next: string | undefined): boolean {
   return (
-    FENCE.test(line) ||
-    HEADING.test(line) ||
+    openFence(line) !== null ||
+    parseHeading(line) !== null ||
     RULE.test(line) ||
     LIST_ITEM.test(line) ||
     QUOTE.test(line) ||
@@ -142,21 +180,21 @@ export function parseBlocks(markdown: string): Raw[] {
       i++;
       continue;
     }
-    const fence = line.match(FENCE);
+    const fence = openFence(line);
     if (fence) {
-      const marker = fence[1]!;
       const body: string[] = [];
       i++;
-      while (i < lines.length && !lines[i]!.trim().startsWith(marker)) body.push(lines[i++]!);
+      while (i < lines.length && !closesFence(lines[i]!, fence)) body.push(lines[i++]!);
       i++;
+      const dedent = new RegExp(`^[ \\t]{0,${fence.indent}}`);
       if (body.some((l) => l.trim() !== '')) {
-        out.push({ kind: 'code', text: body.join('\n'), lang: fence[2] || undefined });
+        out.push({ kind: 'code', text: body.map((l) => l.replace(dedent, '')).join('\n'), lang: fence.lang });
       }
       continue;
     }
-    const heading = line.match(HEADING);
+    const heading = parseHeading(line);
     if (heading) {
-      out.push({ kind: 'heading', level: heading[1]!.length, text: plainText(heading[2]!) });
+      out.push({ kind: 'heading', level: heading.level, text: plainText(heading.text) });
       i++;
       continue;
     }
@@ -185,6 +223,7 @@ export function parseBlocks(markdown: string): Raw[] {
       const raw: string[] = [];
       while (i < lines.length) {
         const l = lines[i]!;
+        if (openFence(l)) break;
         const item = l.match(LIST_ITEM);
         if (item) {
           items.push(item[3]!);
@@ -237,7 +276,26 @@ export function splitSentences(text: string): string[] {
     .filter((p) => p !== '');
 }
 
+function splitList(block: Block): Block[] {
+  const out: Block[] = [];
+  let items: string[] = [];
+  let words = 0;
+  for (const item of block.items ?? []) {
+    const w = countWords(item);
+    if (items.length && words + w > MAX_PARAGRAPH_WORDS / 2) {
+      out.push({ kind: 'list', text: items.join('\n'), items });
+      items = [];
+      words = 0;
+    }
+    items.push(item);
+    words += w;
+  }
+  if (items.length) out.push({ kind: 'list', text: items.join('\n'), items });
+  return out;
+}
+
 function splitParagraph(block: Block): Block[] {
+  if (block.kind === 'list' && countWords(block.text) > MAX_PARAGRAPH_WORDS) return splitList(block);
   if (block.kind !== 'prose' || countWords(block.text) <= MAX_PARAGRAPH_WORDS) return [block];
   const out: Block[] = [];
   let buf: string[] = [];

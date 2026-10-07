@@ -106,3 +106,52 @@ describe('splitSentences', () => {
     ]);
   });
 });
+
+describe('edge cases from review', () => {
+  it('does not treat inline triple backticks as a fence', () => {
+    const md = '```npm install foo``` is all you need.\n\nNext paragraph.\n\n## B\n\nMore prose here.';
+    const sections = splitSections(md);
+    expect(sections.map((s) => s.heading)).toEqual(['Opening', 'B']);
+    expect(sections[0]!.blocks.map((b) => b.kind)).toEqual(['prose', 'prose']);
+  });
+
+  it('closes a fence only on a bare fence line', () => {
+    const md = '```md\nSome text\n```js\nstill inside\n```\n\nAfter.';
+    const blocks = parseBlocks(md);
+    expect(blocks.map((b) => b.kind)).toEqual(['code', 'prose']);
+    expect(blocks[0]!.text).toBe('Some text\n```js\nstill inside');
+  });
+
+  it('keeps code inside a list item as code', () => {
+    const md = '1. Install it:\n\n   ```bash\n   npm install --save foo\n   ```\n\n2. Run it.';
+    const blocks = parseBlocks(md);
+    expect(blocks.map((b) => b.kind)).toEqual(['list', 'code', 'list']);
+    expect(blocks[1]!.text).toBe('npm install --save foo');
+  });
+
+  it('keeps a hash that belongs to the heading text', () => {
+    expect(parseBlocks('## Learning C#')[0]).toEqual({ kind: 'heading', level: 2, text: 'Learning C#' });
+    expect(parseBlocks('## Title ##')[0]).toEqual({ kind: 'heading', level: 2, text: 'Title' });
+  });
+
+  it('keeps words around a less-than sign that is not a tag', () => {
+    expect(plainText('When n <k the loop runs. Then x > 3 again.')).toBe('When n <k the loop runs. Then x > 3 again.');
+    expect(plainText('A <span class="x">word</span> here<br/>')).toBe('A word here');
+  });
+
+  it('stays fast on hostile lines', () => {
+    const started = Date.now();
+    parseBlocks('# a' + ' '.repeat(20000) + 'a');
+    plainText('[a '.repeat(8000));
+    plainText('**a '.repeat(8000));
+    parseBlocks(('[x](' + '('.repeat(50)).repeat(500));
+    expect(Date.now() - started).toBeLessThan(1500);
+  });
+
+  it('splits one giant list so sections stay small', () => {
+    const items = Array.from({ length: 300 }, (_, i) => `- Item number ${i} has a few words in it here.`).join('\n');
+    const parts = splitSections(`## List\n\n${items}`);
+    expect(parts.length).toBeGreaterThan(1);
+    expect(parts.every((p) => p.words <= MAX_SECTION_WORDS)).toBe(true);
+  });
+});
