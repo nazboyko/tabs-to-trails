@@ -200,3 +200,14 @@ describe('mild cuts', () => {
     expect(out.coverage).toBe('Condensed');
   });
 });
+
+describe('a budget as long as the section', () => {
+  it('reads the section as written instead of asking the model to rewrite it', async () => {
+    const chat = fakeChat([]);
+    const out = await rewriteSection(section, { ...planned('condensed'), fullWords: 26, targetWords: 26 }, { title: 'T', chatFn: chat.fn });
+    expect(chat.systems).toHaveLength(0);
+    expect(out.text).toBe(section.blocks[0]!.text);
+    expect(out.treatment).toBe('full');
+    expect(out.coverage).toBe('Full');
+  });
+});

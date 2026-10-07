@@ -225,6 +225,8 @@ function modelGaveUp(err: unknown): boolean {
  * sent whole: its opening is read as written and only the rest is condensed.
  */
 export const NATURAL_RATIO = 0.45;
+/** A condensed budget at this share of the full length or more means: read it as written. */
+export const FULL_ENOUGH = 0.95;
 export const MILD_CUT = 0.6;
 const MIN_TAIL_WORDS = 40;
 
@@ -313,6 +315,11 @@ export async function rewriteSection(section: Section, plan: PlanSection, opts: 
     }
     const text = parts.join('\n\n');
     return { ...base, coverage: 'Full', text, words: countWords(text), checkNumbers, retried, modelSeconds: seconds, modelCalls: calls, note };
+  }
+
+  // A section whose budget is (nearly) its whole length is read as written, never paraphrased.
+  if (plan.treatment === 'condensed' && plan.targetWords >= plan.fullWords * FULL_ENOUGH) {
+    return rewriteSection(section, { ...plan, treatment: 'full', targetWords: plan.fullWords }, opts);
   }
 
   const split = plan.treatment === 'condensed' ? splitForMildCut(section, plan) : null;
