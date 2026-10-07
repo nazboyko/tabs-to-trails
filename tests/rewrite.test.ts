@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { PlanSection } from '../src/server/script/budget.js';
-import { FALLBACK_NOTE, listAsSentences, rewriteSection, soften, toSpokenText, type ChatFn } from '../src/server/script/rewrite.js';
+import { FALLBACK_NOTE, listAsSentences, NATURAL_RATIO, rewriteSection, soften, splitForMildCut, toSpokenText, type ChatFn } from '../src/server/script/rewrite.js';
 import { trimCutOff } from '../src/server/ollama.js';
 import type { Section } from '../src/server/source/sections.js';
 
@@ -160,5 +160,43 @@ describe('spoken text helpers', () => {
 
   it('reads a short list as sentences', () => {
     expect(listAsSentences(['First item', 'Second item!', '[x] Done'])).toBe('First item. Second item! Done.');
+  });
+});
+
+describe('mild cuts', () => {
+  const para = (n: number, word: string) => Array.from({ length: n }, () => word).join(' ') + '.';
+  const long: Section = {
+    id: 's09',
+    heading: 'Long',
+    level: 2,
+    words: 1000,
+    blocks: Array.from({ length: 10 }, (_, i) => ({ kind: 'prose' as const, text: para(100, `w${i}`) })),
+  };
+  const plan = { ...planned('condensed'), fullWords: 1000, sourceWords: 1000, targetWords: 800 };
+
+  it('reads the opening as written and leaves the rest for a cut the model can hold', () => {
+    const split = splitForMildCut(long, plan)!;
+    // head + 0.45 * (1000 - head) = 800  ->  head of about 636 words, whole paragraphs
+    expect(split.headWords).toBe(600);
+    expect(split.head.blocks).toHaveLength(6);
+    expect(split.tail.blocks).toHaveLength(4);
+    expect(800 - split.headWords).toBeGreaterThan(400 * NATURAL_RATIO);
+  });
+
+  it('leaves a deep cut to the model alone', () => {
+    expect(splitForMildCut(long, { ...plan, targetWords: 500 })).toBeNull();
+  });
+
+  it('asks the model only about the tail, with the words that are left', async () => {
+    const chat = fakeChat(['Short tail summary with enough words to count as a real reply here.']);
+    const out = await rewriteSection(long, plan, { title: 'T', chatFn: chat.fn });
+    expect(chat.systems).toHaveLength(2);
+    expect(chat.systems[0]).toContain('Target length: 200 words');
+    // Read as written (soften only capitalizes the first letter).
+    expect(out.text.startsWith('W0 w0 w0')).toBe(true);
+    expect(out.text).toContain(para(100, 'w5').slice(0, 40));
+    expect(out.text).not.toContain('w6');
+    expect(out.text).toContain('Short tail summary');
+    expect(out.coverage).toBe('Condensed');
   });
 });

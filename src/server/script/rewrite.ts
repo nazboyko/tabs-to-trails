@@ -1,6 +1,6 @@
 import { chat, PromptTooLarge, type ChatReply } from '../ollama.js';
 import { countWords, sectionLabel, splitSentences, type Block, type Section } from '../source/sections.js';
-import { adaptedKind, ADAPTED_ESTIMATE, coverageFor, type AdaptedKind, type Coverage, type PlanSection, type Treatment } from './budget.js';
+import { adaptedKind, ADAPTED_ESTIMATE, coverageFor, fullBlockWords, type AdaptedKind, type Coverage, type PlanSection, type Treatment } from './budget.js';
 import { newNumbers } from './guard.js';
 import { blockToMarkdown, condenseSystem, describeSystem, lengthenNote, mentionSystem, retryNote, sectionSource, shortenSystem } from './prompts.js';
 
@@ -196,6 +196,35 @@ function modelGaveUp(err: unknown): boolean {
   return err instanceof EmptyReply || err instanceof PromptTooLarge;
 }
 
+/**
+ * Gemma condenses to roughly this share of a text whatever target it is
+ * given, so a section that must keep more than MILD_CUT of its words is not
+ * sent whole: its opening is read as written and only the rest is condensed.
+ */
+export const NATURAL_RATIO = 0.45;
+export const MILD_CUT = 0.6;
+const MIN_TAIL_WORDS = 40;
+
+/** Opening blocks to read as written and the rest to condense, or null when the cut is not mild. */
+export function splitForMildCut(section: Section, plan: Pick<PlanSection, 'targetWords' | 'fullWords'>): { head: Section; tail: Section; headWords: number } | null {
+  const { targetWords: target, fullWords: full } = plan;
+  if (full <= 0 || target / full < MILD_CUT || section.blocks.length < 2) return null;
+  // head + NATURAL_RATIO * (full - head) = target
+  const wantHead = (target - NATURAL_RATIO * full) / (1 - NATURAL_RATIO);
+  let headWords = 0;
+  let cut = 0;
+  for (const block of section.blocks) {
+    const w = fullBlockWords(block);
+    if (headWords + w / 2 > wantHead) break;
+    headWords += w;
+    cut++;
+  }
+  if (cut === 0 || cut >= section.blocks.length || full - headWords < MIN_TAIL_WORDS) return null;
+  const head: Section = { ...section, blocks: section.blocks.slice(0, cut), words: headWords };
+  const tail: Section = { ...section, blocks: section.blocks.slice(cut), words: full - headWords };
+  return { head, tail, headWords };
+}
+
 export interface RewriteOptions {
   title: string;
   chatFn?: ChatFn;
@@ -259,6 +288,27 @@ export async function rewriteSection(section: Section, plan: PlanSection, opts: 
     }
     const text = parts.join('\n\n');
     return { ...base, coverage: 'Full', text, words: countWords(text), checkNumbers, retried, modelSeconds: seconds, modelCalls: calls, note };
+  }
+
+  const split = plan.treatment === 'condensed' ? splitForMildCut(section, plan) : null;
+  if (split) {
+    // Keep the opening as written; only the rest is condensed, at a cut the model can hold.
+    const head = await rewriteSection(split.head, { ...plan, treatment: 'full', targetWords: split.headWords, fullWords: split.headWords }, opts);
+    const tailTarget = Math.max(MIN_TAIL_WORDS, plan.targetWords - head.words);
+    const tail = await rewriteSection(split.tail, { ...plan, targetWords: tailTarget, fullWords: plan.fullWords - split.headWords }, opts);
+    const text = `${head.text}\n\n${tail.text}`;
+    const outWords = countWords(text);
+    return {
+      ...base,
+      coverage: coverageFor(outWords, plan.fullWords),
+      text,
+      words: outWords,
+      checkNumbers: [...new Set([...head.checkNumbers, ...tail.checkNumbers])],
+      retried: head.retried || tail.retried,
+      modelSeconds: head.modelSeconds + tail.modelSeconds,
+      modelCalls: head.modelCalls + tail.modelCalls,
+      note: head.note ?? tail.note,
+    };
   }
 
   const words = Math.max(12, askWords(plan.targetWords));
