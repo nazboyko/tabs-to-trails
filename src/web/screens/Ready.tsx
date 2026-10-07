@@ -1,0 +1,208 @@
+import { Badge, ScreenTitle } from '../common';
+import type { WalkDetail } from '../api';
+import { aboutMinutes, clock, megabytes, plural, words } from '../format';
+import { Chevron, Download, Notice } from '../icons';
+import { onLink } from '../router';
+
+type ReadyDetail = Extract<WalkDetail, { ready: true }>;
+
+export function askedLine(d: ReadyDetail): string {
+  const { targetSeconds, mode, fullSeconds } = d.plan;
+  const actual = d.meta.actualSeconds;
+  if (targetSeconds === null) return 'The whole thing, read in full.';
+  if (mode === 'condensed') return `You asked for ${clock(targetSeconds)} · read in full it's ${aboutMinutes(fullSeconds)}`;
+  if (actual < targetSeconds * 0.9) return `You asked for ${clock(targetSeconds)}. This one is shorter, so nothing was cut.`;
+  return `You asked for ${clock(targetSeconds)} · read in full`;
+}
+
+function sectionNotes(s: ReadyDetail['sections'][number]): { text: string; check?: boolean }[] {
+  const notes: { text: string; check?: boolean }[] = [];
+  if (s.adapted.includes('table')) notes.push({ text: 'Table, told as a comparison' });
+  if (s.adapted.includes('code')) notes.push({ text: 'Code, described in a sentence' });
+  if (s.note) notes.push({ text: 'Part read from the source as written' });
+  if (s.checkNumbers.length) notes.push({ text: s.checkNumbers.length === 1 ? 'One number to check' : `${s.checkNumbers.length} numbers to check`, check: true });
+  return notes;
+}
+
+function Timeline({ d }: { d: ReadyDetail }) {
+  const total = d.meta.actualSeconds;
+  const order: string[] = [];
+  for (const seg of d.segments) if (seg.sectionId && !order.includes(seg.sectionId)) order.push(seg.sectionId);
+  const halfway = d.app.halfway?.start ?? null;
+  const at = halfway === null ? null : Math.min(92, Math.max(8, (halfway / total) * 100));
+  return (
+    <div className="timeline">
+      <div className="segs" aria-hidden="true">
+        {d.segments.map((seg, i) => (
+          <div
+            key={i}
+            title={seg.label}
+            className={`seg ${seg.kind === 'app' ? 'app' : 'src'}${seg.sectionId && order.indexOf(seg.sectionId) % 2 === 1 ? ' alt' : ''}`}
+            style={{ flex: `${Math.max(seg.end - seg.start, 1)} 1 0` }}
+          />
+        ))}
+      </div>
+      <div className="t" style={{ left: 0 }} aria-hidden="true">
+        0:00
+      </div>
+      <div className="t" style={{ right: 0 }} aria-hidden="true">
+        {clock(total)}
+      </div>
+      {at !== null && halfway !== null && (
+        <>
+          <div className="cue-line" style={{ left: `${at}%` }} aria-hidden="true" />
+          <div className="cue-label" style={{ left: `${at}%` }}>
+            Halfway cue
+            <br />
+            <span className="mono" style={{ fontWeight: 500 }}>
+              {clock(halfway)}
+            </span>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+export function Ready({ detail: d }: { detail: ReadyDetail }) {
+  const flagged = d.sections.filter((s) => s.checkNumbers.length);
+  const flaggedCount = flagged.reduce((n, s) => n + s.checkNumbers.length, 0);
+  const counts = [
+    d.meta.coverage.full ? `${d.meta.coverage.full} in full` : '',
+    d.meta.coverage.condensed ? `${d.meta.coverage.condensed} condensed` : '',
+    d.meta.coverage.brief ? `${d.meta.coverage.brief} brief` : '',
+  ].filter(Boolean);
+  const audio = `/api/walks/${d.id}/audio`;
+
+  return (
+    <div className="page tight">
+      <div className="stack" style={{ gap: 10 }}>
+        <div className="eyebrow orange">Ready to walk</div>
+        <ScreenTitle title="Ready to walk">{d.title}</ScreenTitle>
+        <div className="duration">
+          <span className="mono" aria-label={`Measured length ${clock(d.meta.actualSeconds)}`}>
+            {clock(d.meta.actualSeconds)}
+          </span>
+          <span>{askedLine(d)}</span>
+        </div>
+      </div>
+
+      {d.share ? (
+        <section className="qr-card" aria-labelledby="qr-title">
+          <img src={d.share.qr} alt="QR code that opens this walk on your phone" width={168} height={168} />
+          <div className="steps">
+            <h2 id="qr-title">Scan it with your phone</h2>
+            <ol>
+              <li>
+                Tap <strong>Download MP3</strong>.
+              </li>
+              <li>Press play.</li>
+              <li>Pocket the phone and go.</li>
+            </ol>
+            <p className="small">Works while your phone and this computer are on the same Wi-Fi.</p>
+          </div>
+        </section>
+      ) : (
+        <section className="qr-card" aria-labelledby="qr-title">
+          <div className="steps">
+            <h2 id="qr-title">No phone link right now</h2>
+            <p style={{ margin: 0 }}>This computer isn't on a network, so a QR code would lead nowhere. Download the MP3 and copy it to your phone instead.</p>
+            <p className="small">QR needs your phone and computer on the same network.</p>
+          </div>
+        </section>
+      )}
+
+      <div className="stack" style={{ gap: 10 }}>
+        <div className="row">
+          <a className="btn dark" href={audio} download={d.meta.fileName}>
+            <Download />
+            Download MP3
+          </a>
+          <a className="btn" href={`/walk/${d.id}/script`} onClick={onLink} style={{ minHeight: 52 }}>
+            Read the script
+          </a>
+        </div>
+        <div className="file-line">
+          {d.meta.fileName} · {megabytes(d.meta.bytes)}
+        </div>
+      </div>
+
+      {flaggedCount > 0 && (
+        <a className="needs-look" href={`/walk/${d.id}/script#${flagged[0]!.id}`} onClick={onLink}>
+          <Notice />
+          <span>
+            {flaggedCount === 1 ? 'One number in the script needs a look.' : `${flaggedCount} numbers in the script need a look.`}{' '}
+            <span className="u">Check it</span>
+          </span>
+        </a>
+      )}
+
+      <div className="divider" />
+
+      <section className="stack" aria-labelledby="hear-title">
+        <h2 id="hear-title" className="section-title">
+          What you'll hear
+        </h2>
+        <Timeline d={d} />
+        <p className="small">
+          Green is the article. Orange is the app talking: the intro, the halfway cue{d.app.question ? ', one question for the last stretch' : ''}, and the sign-off.
+        </p>
+      </section>
+
+      <details className="made">
+        <summary>
+          <span className="stack" style={{ gap: 0 }}>
+            <span style={{ fontWeight: 600 }}>How this Walk Edition was made</span>
+            <span className="small">
+              {plural(d.sections.length, 'section', 'sections')}: {counts.join(', ')}
+            </span>
+          </span>
+          <Chevron />
+        </summary>
+        <div className="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th scope="col">Section</th>
+                <th scope="col">Kept</th>
+                <th scope="col" style={{ textAlign: 'right', paddingRight: 0 }}>
+                  Time
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {d.sections.map((s) => (
+                <tr key={s.id}>
+                  <td>
+                    {s.label}
+                    {sectionNotes(s).map((n) => (
+                      <div key={n.text} className={`sub${n.check ? ' check' : ''}`}>
+                        {n.text}
+                      </div>
+                    ))}
+                  </td>
+                  <td>
+                    <Badge coverage={s.coverage} />
+                  </td>
+                  <td className="num">{clock(s.seconds)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <p className="facts">
+          {words(d.meta.sourceWords)} words in the source, {words(d.meta.scriptWords)} in the script. Rewritten by {d.meta.model} in{' '}
+          {Math.round(d.meta.rewriteSeconds)} s and read by {d.meta.voiceName} (Kokoro) in {Math.round(d.meta.voiceSeconds)} s, on this computer.
+          {d.leftOut.length > 0 && ` Left out as lists of links: ${d.leftOut.join(', ')}.`}
+        </p>
+      </details>
+
+      <div className="foot-row">
+        <p className="small">Stay aware of traffic and your surroundings.</p>
+        <a href="/" onClick={onLink} style={{ display: 'flex', alignItems: 'center', minHeight: 44, fontSize: 15, fontWeight: 600 }}>
+          Make another
+        </a>
+      </div>
+    </div>
+  );
+}

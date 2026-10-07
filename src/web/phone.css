@@ -1,0 +1,274 @@
+.phone-body {
+  min-height: 100vh;
+  min-height: 100dvh;
+}
+
+.phone-body.walking {
+  background: var(--forest);
+  color: var(--forest-text);
+}
+
+.phone {
+  max-width: 480px;
+  min-height: 100vh;
+  min-height: 100dvh;
+  margin: 0 auto;
+  padding: max(28px, env(safe-area-inset-top)) 24px max(32px, env(safe-area-inset-bottom));
+  display: flex;
+  flex-direction: column;
+}
+
+.phone .brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--serif);
+  font-size: 18px;
+  font-weight: 500;
+}
+
+.phone .middle {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 16px;
+  padding: 32px 0 40px;
+}
+
+.phone h1 {
+  font-size: 40px;
+  line-height: 1.1;
+}
+
+.phone h1.smaller {
+  font-size: 34px;
+  line-height: 1.12;
+}
+
+.phone .when {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.phone .when .mono {
+  font-size: 28px;
+  font-weight: 500;
+}
+
+.phone .when span:last-child {
+  font-size: 15px;
+  color: var(--muted);
+}
+
+.phone .actions {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.phone .btn.primary {
+  min-height: 60px;
+  border-radius: 14px;
+  font-size: 18px;
+}
+
+.phone .btn.secondary {
+  min-height: 52px;
+  border-radius: 14px;
+}
+
+.phone .steps-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.phone .steps-list li {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+  font-size: 18px;
+}
+
+.phone .steps-list .n {
+  flex: none;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--ink);
+  color: var(--card);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--mono);
+  font-size: 15px;
+}
+
+.phone .load-bar {
+  height: 10px;
+  border-radius: 5px;
+  background: var(--track);
+  overflow: hidden;
+}
+
+.phone .load-bar > div {
+  height: 100%;
+  border-radius: 5px;
+  background: var(--orange);
+  transition: width 200ms ease;
+}
+
+.phone .load-nums {
+  display: flex;
+  justify-content: space-between;
+  font-family: var(--mono);
+  font-size: 14px;
+  color: var(--muted);
+}
+
+/* The walking screen: the only dark screen in the product. */
+
+.walking .phone :focus-visible {
+  outline-color: var(--forest-text);
+}
+
+.walking .top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.walking .icon-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  margin-left: -12px;
+  border: 0;
+  background: transparent;
+  color: var(--forest-text);
+  cursor: pointer;
+}
+
+.walking .pocket {
+  font-family: var(--serif);
+  font-style: italic;
+  font-size: 44px;
+  line-height: 1.08;
+}
+
+.walking .quiet {
+  margin: 0;
+  font-size: 18px;
+  color: var(--forest-muted);
+}
+
+.walking .track {
+  position: relative;
+  height: 20px;
+  display: flex;
+  align-items: center;
+}
+
+.walking .track .rail {
+  width: 100%;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--ink-soft);
+}
+
+.walking .track .done {
+  position: absolute;
+  left: 0;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--forest-text);
+}
+
+.walking .track .half {
+  position: absolute;
+  width: 2px;
+  height: 20px;
+  background: #f08a4b;
+}
+
+.walking .track .knob {
+  position: absolute;
+  width: 16px;
+  height: 16px;
+  margin-left: -8px;
+  border-radius: 50%;
+  background: var(--forest-text);
+}
+
+.walking .times {
+  display: flex;
+  justify-content: space-between;
+  font-family: var(--mono);
+  font-size: 13px;
+  color: var(--forest-muted);
+}
+
+.walking .times .h {
+  color: #f5b48a;
+}
+
+.walking .controls {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 28px;
+}
+
+.walking .skip {
+  width: 56px;
+  height: 56px;
+  border: 1px solid #8fa394;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--forest-text);
+  font-family: var(--mono);
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.walking .main-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 80px;
+  height: 80px;
+  border: 0;
+  border-radius: 50%;
+  background: var(--forest-text);
+  cursor: pointer;
+}
+
+.walking .loaded {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  font-size: 14px;
+  color: var(--forest-muted);
+}
+
+.walking .loaded svg {
+  flex: none;
+  margin-top: 1px;
+}
+
+.walking .warn {
+  padding: 10px 12px;
+  border: 1.5px dashed #f5b48a;
+  border-radius: 10px;
+  font-size: 14px;
+  color: var(--forest-text);
+}

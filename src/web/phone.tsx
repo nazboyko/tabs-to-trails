@@ -1,0 +1,396 @@
+import './fonts';
+import './styles.css';
+import './phone.css';
+import { StrictMode, useEffect, useRef, useState } from 'react';
+import { createRoot } from 'react-dom/client';
+import { clock, megabytes } from './format';
+import { Back, Download, Logo, Pause, Play, PlayFilled, Tick } from './icons';
+
+interface Info {
+  title: string;
+  actualSeconds: number;
+  halfwaySeconds: number | null;
+  bytes: number;
+  fileName: string;
+  chapters: { label: string; start: number }[];
+}
+
+type View = 'home' | 'downloaded' | 'loading' | 'playing';
+
+function walkFromLocation(): { id: string; token: string } {
+  const path = location.pathname.match(/^\/w\/([a-f0-9]{12})/);
+  const q = new URLSearchParams(location.search);
+  return { id: path?.[1] ?? q.get('id') ?? '', token: q.get('t') ?? '' };
+}
+
+/** 0.1 s of silence, played inside the tap so the browser lets the real audio start later. */
+function silentWav(): string {
+  const samples = 800;
+  const bytes = new Uint8Array(44 + samples);
+  const view = new DataView(bytes.buffer);
+  const text = (at: number, s: string) => [...s].forEach((c, i) => view.setUint8(at + i, c.charCodeAt(0)));
+  text(0, 'RIFF');
+  view.setUint32(4, 36 + samples, true);
+  text(8, 'WAVE');
+  text(12, 'fmt ');
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true);
+  view.setUint16(22, 1, true);
+  view.setUint32(24, 8000, true);
+  view.setUint32(28, 8000, true);
+  view.setUint16(32, 1, true);
+  view.setUint16(34, 8, true);
+  text(36, 'data');
+  view.setUint32(40, samples, true);
+  bytes.fill(128, 44);
+  let binary = '';
+  bytes.forEach((b) => (binary += String.fromCharCode(b)));
+  return `data:audio/wav;base64,${btoa(binary)}`;
+}
+
+function Brand() {
+  return (
+    <div className="brand">
+      <Logo size={24} />
+      Tabs to Trails
+    </div>
+  );
+}
+
+function useFocusHeading(view: View) {
+  const ref = useRef<HTMLHeadingElement>(null);
+  const first = useRef(true);
+  useEffect(() => {
+    if (first.current) {
+      first.current = false;
+      return;
+    }
+    ref.current?.focus();
+  }, [view]);
+  return ref;
+}
+
+function Phone() {
+  const { id, token } = walkFromLocation();
+  const base = `/w/${id}`;
+  const query = `t=${encodeURIComponent(token)}`;
+  const [info, setInfo] = useState<Info | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [view, setView] = useState<View>('home');
+  const [received, setReceived] = useState(0);
+  const [total, setTotal] = useState(0);
+  const [loaded, setLoaded] = useState(false);
+  const [streaming, setStreaming] = useState(false);
+  const [playing, setPlaying] = useState(false);
+  const [now, setNow] = useState(0);
+  const audio = useRef<HTMLAudioElement | null>(null);
+  const blobUrl = useRef<string | null>(null);
+  const loader = useRef<AbortController | null>(null);
+  const heading = useFocusHeading(view);
+
+  useEffect(() => {
+    fetch(`${base}/info?${query}`)
+      .then(async (r) => {
+        const body = await r.json();
+        if (!r.ok) throw new Error(body.error ?? 'This walk could not be opened.');
+        setInfo(body as Info);
+        document.title = `${(body as Info).title} · Tabs to Trails`;
+      })
+      .catch((e: unknown) => setError(e instanceof Error ? e.message : 'This walk could not be opened.'));
+    return () => {
+      if (blobUrl.current) URL.revokeObjectURL(blobUrl.current);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    document.body.classList.toggle('walking', view === 'playing');
+    document.querySelector('meta[name="theme-color"]')?.setAttribute('content', view === 'playing' ? '#1E3A2B' : '#F5F0E6');
+  }, [view]);
+
+  const element = (): HTMLAudioElement => {
+    if (audio.current) return audio.current;
+    const a = new Audio();
+    a.preload = 'auto';
+    a.addEventListener('timeupdate', () => setNow(a.currentTime));
+    a.addEventListener('play', () => setPlaying(true));
+    a.addEventListener('pause', () => setPlaying(false));
+    a.addEventListener('ended', () => setPlaying(false));
+    audio.current = a;
+    return a;
+  };
+
+  const startPlaying = (a: HTMLAudioElement, src: string) => {
+    a.src = src;
+    setView('playing');
+    if (info && 'mediaSession' in navigator) {
+      navigator.mediaSession.metadata = new MediaMetadata({ title: info.title, artist: 'Tabs to Trails', album: 'Walk Edition' });
+      navigator.mediaSession.setActionHandler('play', () => void a.play());
+      navigator.mediaSession.setActionHandler('pause', () => a.pause());
+      navigator.mediaSession.setActionHandler('seekbackward', () => (a.currentTime = Math.max(0, a.currentTime - 15)));
+      navigator.mediaSession.setActionHandler('seekforward', () => (a.currentTime = Math.min(a.duration || Infinity, a.currentTime + 15)));
+    }
+    void a.play().catch(() => setPlaying(false));
+  };
+
+  const playHere = async () => {
+    const a = element();
+    if (blobUrl.current) {
+      startPlaying(a, blobUrl.current);
+      return;
+    }
+    // Inside the tap: unlock playback, since the real start comes after the download.
+    a.src = silentWav();
+    void a.play().then(() => a.pause(), () => undefined);
+    setView('loading');
+    setReceived(0);
+    const controller = new AbortController();
+    loader.current = controller;
+    try {
+      const res = await fetch(`${base}/audio?${query}`, { signal: controller.signal });
+      if (!res.ok || !res.body) throw new Error('download failed');
+      const size = Number(res.headers.get('content-length')) || info?.bytes || 0;
+      setTotal(size);
+      const reader = res.body.getReader();
+      const chunks: Uint8Array[] = [];
+      let got = 0;
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        chunks.push(value);
+        got += value.byteLength;
+        setReceived(got);
+      }
+      const blob = new Blob(chunks as BlobPart[], { type: 'audio/mpeg' });
+      blobUrl.current = URL.createObjectURL(blob);
+      setLoaded(true);
+      setStreaming(false);
+      startPlaying(a, blobUrl.current);
+    } catch {
+      if (controller.signal.aborted) {
+        setView('home');
+        return;
+      }
+      // The phone would not hold the file; play over the network and say so.
+      setStreaming(true);
+      startPlaying(a, `${base}/audio?${query}`);
+    }
+  };
+
+  const cancelLoading = () => {
+    loader.current?.abort();
+    setView('home');
+  };
+
+  const leavePlayer = () => {
+    audio.current?.pause();
+    setView('home');
+  };
+
+  const skip = (delta: number) => {
+    const a = audio.current;
+    if (!a) return;
+    a.currentTime = Math.min(Math.max(0, a.currentTime + delta), a.duration || a.currentTime + delta);
+  };
+
+  const togglePlay = () => {
+    const a = audio.current;
+    if (!a) return;
+    if (a.paused) void a.play();
+    else a.pause();
+  };
+
+  if (error) {
+    return (
+      <div className="phone">
+        <Brand />
+        <div className="middle">
+          <h1 className="smaller">This walk can't be opened.</h1>
+          <p className="lede">{error}</p>
+        </div>
+      </div>
+    );
+  }
+  if (!info) return <div className="phone" aria-busy="true" />;
+
+  const download = `${base}/audio?${query}&download=1`;
+
+  if (view === 'playing') {
+    const length = audio.current?.duration && Number.isFinite(audio.current.duration) ? audio.current.duration : info.actualSeconds;
+    const pct = Math.min(100, (now / length) * 100);
+    const half = info.halfwaySeconds === null ? null : (info.halfwaySeconds / length) * 100;
+    const chapter = [...info.chapters].reverse().find((c) => c.start <= now + 0.5);
+    return (
+      <div className="phone">
+        <div className="top">
+          <button type="button" className="icon-btn" onClick={leavePlayer} aria-label="Back to the walk page">
+            <Back color="#F5F0E6" />
+          </button>
+          <span style={{ fontFamily: 'var(--serif)', fontSize: 18, fontWeight: 500 }}>Tabs to Trails</span>
+          <span style={{ width: 32 }} />
+        </div>
+        <div className="middle" style={{ gap: 20 }}>
+          <h1 ref={heading} tabIndex={-1} className="pocket">
+            Pocket your phone.
+          </h1>
+          <p className="quiet">I'll tell you when you're halfway. There's nothing else to look at here.</p>
+        </div>
+        <div className="stack" style={{ gap: 20 }}>
+          <div className="stack" style={{ gap: 4 }}>
+            <div style={{ fontSize: 17, fontWeight: 600 }}>{info.title}</div>
+            {chapter && <div style={{ fontSize: 14, color: 'var(--forest-muted)' }}>Now: {chapter.label}</div>}
+          </div>
+          <div className="stack" style={{ gap: 8 }}>
+            <div className="track" aria-hidden="true">
+              <div className="rail" />
+              <div className="done" style={{ width: `${pct}%` }} />
+              {half !== null && <div className="half" style={{ left: `${half}%` }} />}
+              <div className="knob" style={{ left: `${pct}%` }} />
+            </div>
+            <div className="times">
+              <span aria-label={`Played ${clock(now)}`}>{clock(now)}</span>
+              {info.halfwaySeconds !== null && <span className="h">halfway {clock(info.halfwaySeconds)}</span>}
+              <span aria-label={`Total ${clock(length)}`}>{clock(length)}</span>
+            </div>
+          </div>
+          <div className="controls">
+            <button type="button" className="skip" aria-label="Back 15 seconds" onClick={() => skip(-15)}>
+              -15
+            </button>
+            <button type="button" className="main-btn" aria-label={playing ? 'Pause' : 'Play'} onClick={togglePlay}>
+              {playing ? <Pause /> : <PlayFilled />}
+            </button>
+            <button type="button" className="skip" aria-label="Forward 15 seconds" onClick={() => skip(15)}>
+              +15
+            </button>
+          </div>
+          {loaded && !streaming ? (
+            <div className="loaded" role="status">
+              <Tick />
+              <div>The whole walk is loaded on this phone. Wi-Fi isn't needed any more. Keep this tab open until you're home.</div>
+            </div>
+          ) : (
+            <div className="warn" role="status">
+              Playing over Wi-Fi. It may stop once you walk out of range. Download it first to be safe.
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  if (view === 'loading') {
+    const pct = total ? Math.min(100, Math.round((received / total) * 100)) : 0;
+    return (
+      <div className="phone">
+        <Brand />
+        <div className="middle" style={{ gap: 28 }}>
+          <div className="stack" style={{ gap: 10 }}>
+            <div className="eyebrow orange">Getting it onto this phone</div>
+            <h1 ref={heading} tabIndex={-1} className="smaller">
+              {info.title}
+            </h1>
+          </div>
+          <div className="stack" style={{ gap: 10 }}>
+            <div className="load-bar" role="progressbar" aria-label="Loading the audio" aria-valuemin={0} aria-valuemax={100} aria-valuenow={pct}>
+              <div style={{ width: `${pct}%` }} />
+            </div>
+            <div className="load-nums">
+              <span>
+                {megabytes(received)} of {megabytes(total || info.bytes)}
+              </span>
+              <span>{pct}%</span>
+            </div>
+          </div>
+          <p style={{ margin: 0, fontSize: 17 }}>Stay near your computer for a few more seconds. Once the whole walk is on this phone, you won't need Wi-Fi.</p>
+        </div>
+        <button type="button" className="link-button" style={{ alignSelf: 'center' }} onClick={cancelLoading}>
+          Cancel
+        </button>
+      </div>
+    );
+  }
+
+  if (view === 'downloaded') {
+    return (
+      <div className="phone">
+        <Brand />
+        <div className="middle" style={{ gap: 24 }}>
+          <div className="stack" style={{ gap: 10 }}>
+            <div className="eyebrow orange">Download started</div>
+            <h1 ref={heading} tabIndex={-1} className="smaller">
+              Three more taps and you're out the door.
+            </h1>
+          </div>
+          <ol className="steps-list">
+            <li>
+              <span className="n" aria-hidden="true">
+                1
+              </span>
+              <span>Open the file from your downloads.</span>
+            </li>
+            <li>
+              <span className="n" aria-hidden="true">
+                2
+              </span>
+              <span>Press play.</span>
+            </li>
+            <li>
+              <span className="n" aria-hidden="true">
+                3
+              </span>
+              <span>Pocket the phone.</span>
+            </li>
+          </ol>
+          <p style={{ margin: 0, fontSize: 15, color: 'var(--muted)' }}>
+            I can't see your downloads from this page, so check the file is there before you leave. Once it is, you don't need Wi-Fi or this tab.
+          </p>
+        </div>
+        <div className="stack" style={{ gap: 4 }}>
+          <a className="btn secondary" href={download} download={info.fileName}>
+            Download again
+          </a>
+          <button type="button" className="link-button" style={{ alignSelf: 'center', minHeight: 48 }} onClick={() => void playHere()}>
+            Play it here instead
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="phone">
+      <Brand />
+      <div className="middle" style={{ paddingBottom: 72 }}>
+        <div className="eyebrow orange">Your walk is ready</div>
+        <h1 ref={heading} tabIndex={-1}>
+          {info.title}
+        </h1>
+        <div className="when">
+          <span className="mono">{clock(info.actualSeconds)}</span>
+          {info.halfwaySeconds !== null && <span>Halfway cue at {clock(info.halfwaySeconds)}</span>}
+        </div>
+      </div>
+      <div className="actions">
+        <a className="btn primary" href={download} download={info.fileName} onClick={() => setView('downloaded')}>
+          <Download color="#FFFFFF" size={20} />
+          Download MP3
+        </a>
+        <p className="small center">{megabytes(info.bytes)}. Do this before you leave, while you're still on home Wi-Fi.</p>
+        <button type="button" className="btn secondary" style={{ marginTop: 4 }} onClick={() => void playHere()}>
+          <Play />
+          Play it here instead
+        </button>
+      </div>
+      <p className="small center" style={{ marginTop: 28, fontSize: 13 }}>
+        Made on your computer. Nothing was uploaded.
+      </p>
+    </div>
+  );
+}
+
+createRoot(document.getElementById('root')!).render(
+  <StrictMode>
+    <Phone />
+  </StrictMode>,
+);
