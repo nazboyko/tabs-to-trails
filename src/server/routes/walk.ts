@@ -56,7 +56,7 @@ export async function walkDetail(id: string, jobs: Jobs, port: number) {
     ready: true as const,
     title: meta.title,
     meta,
-    plan: { mode: plan.mode, targetSeconds: plan.targetSeconds, fullSeconds: plan.fullSeconds, tooLong: plan.tooLong },
+    plan: { mode: meta.mode, targetSeconds: plan.targetSeconds, fullSeconds: plan.fullSeconds, tooLong: plan.tooLong },
     sections: script.sections.map((s) => {
       const segs = timeline.segments.filter((g) => g.sectionId === s.id);
       const planned = plan.sections.find((p) => p.id === s.id);

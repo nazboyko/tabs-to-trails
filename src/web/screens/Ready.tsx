@@ -1,21 +1,21 @@
 import { Badge, ScreenTitle } from '../common';
 import type { WalkDetail } from '../api';
-import { aboutMinutes, clock, megabytes, plural, words } from '../format';
+import { clock, megabytes, plural, words } from '../format';
+import { askedLine } from '../lengths';
 import { Chevron, Download, Notice } from '../icons';
 import { onLink } from '../router';
 
 type ReadyDetail = Extract<WalkDetail, { ready: true }>;
 
-export function askedLine(d: ReadyDetail): string {
-  const { targetSeconds } = d.plan;
-  const { actualSeconds: actual, coverage, sourceWords, scriptWords } = d.meta;
-  if (targetSeconds === null) return 'The whole thing, read in full.';
-  const allFull = coverage.condensed === 0 && coverage.brief === 0;
-  if (allFull && actual < targetSeconds * 0.9) return `You asked for ${clock(targetSeconds)}. This one is shorter, so nothing was cut.`;
-  if (allFull) return `You asked for ${clock(targetSeconds)} · read in full`;
-  // The full-length estimate uses this walk's own measured pace.
-  const fullEstimate = scriptWords > 0 ? (actual * sourceWords) / scriptWords : d.plan.fullSeconds;
-  return `You asked for ${clock(targetSeconds)} · read in full it's ${aboutMinutes(fullEstimate)}`;
+function asked(d: ReadyDetail): string {
+  return askedLine({
+    targetSeconds: d.plan.targetSeconds,
+    actualSeconds: d.meta.actualSeconds,
+    mode: d.meta.mode,
+    sourceWords: d.meta.sourceWords,
+    scriptWords: d.meta.scriptWords,
+    fullSeconds: d.plan.fullSeconds,
+  });
 }
 
 function sectionNotes(s: ReadyDetail['sections'][number]): { text: string; check?: boolean }[] {
@@ -94,7 +94,7 @@ export function Ready({ detail: d, arrived = false }: { detail: ReadyDetail; arr
             <span className="visually-hidden">Measured length </span>
             {clock(d.meta.actualSeconds)}
           </span>
-          <span>{askedLine(d)}</span>
+          <span>{asked(d)}</span>
         </div>
       </div>
 

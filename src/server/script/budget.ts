@@ -62,6 +62,16 @@ export function fullBlockWords(block: Block): number {
   return blockWords(block);
 }
 
+/**
+ * What the walk turned out to be, not what was planned: full only when every
+ * section is read as written. A planned condensed walk whose fit pass gave
+ * every section its words back is full; a planned full walk the fit pass had
+ * to condense is not.
+ */
+export function walkMode(sections: { treatment: Treatment }[]): Mode {
+  return sections.every((s) => s.treatment === 'full') ? 'full' : 'condensed';
+}
+
 export function coverageFor(targetWords: number, fullWords: number): Coverage {
   if (fullWords <= 0) return 'Full';
   const ratio = targetWords / fullWords;
