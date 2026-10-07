@@ -54,17 +54,21 @@ export async function exists(file: string): Promise<boolean> {
   }
 }
 
+/** File-name form of a title, at most 60 characters, cut between words. */
 export function slugify(title: string): string {
-  const slug = title
+  let slug = title
     .normalize('NFKD')
-    .replace(/[̀-ͯ]/g, '')
+    .replace(/[\u0300-\u036f]/g, '')
     .toLowerCase()
-    .replace(/['’]/g, '')
+    .replace(/['\u2019]/g, '')
     .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 60)
-    .replace(/-+$/, '');
-  return slug || 'walk';
+    .replace(/^-+|-+$/g, '');
+  if (slug.length > 60) {
+    slug = slug.slice(0, 61);
+    const cut = slug.lastIndexOf('-');
+    slug = cut > 20 ? slug.slice(0, cut) : slug.slice(0, 60);
+  }
+  return slug.replace(/-+$/, '') || 'walk';
 }
 
 export async function listWalkIds(): Promise<string[]> {

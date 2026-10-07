@@ -9,7 +9,7 @@ export const MAX_FILE_BYTES = 2 * 1024 * 1024;
  * Markdown needs the blank lines, so they are added back.
  */
 export function normalizePasted(text: string): string {
-  const unix = text.replace(/\r\n?/g, '\n').replace(/ /g, ' ').trim();
+  const unix = text.replace(/\r\n?/g, '\n').replace(/\u00a0/g, ' ').trim();
   if (/\n\s*\n/.test(unix)) return unix;
   return unix.replace(/\n+/g, '\n\n');
 }

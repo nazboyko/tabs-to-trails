@@ -244,3 +244,13 @@ describe('Jobs', () => {
     await waitFor(jobs, first.id, 'done');
   });
 });
+
+describe('slugify', () => {
+  it('cuts long titles between words', async () => {
+    const { slugify } = await import('../src/server/walks/store.js');
+    expect(slugify("My Six-Year-Old Can't Do Five Things at Once, So His Screen Shows One")).toBe('my-six-year-old-cant-do-five-things-at-once-so-his-screen');
+    expect(slugify('Walking, part one, by Henry David Thoreau')).toBe('walking-part-one-by-henry-david-thoreau');
+    expect(slugify('Café déjà vu')).toBe('cafe-deja-vu');
+    expect(slugify('???')).toBe('walk');
+  });
+});

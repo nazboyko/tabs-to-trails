@@ -39,7 +39,7 @@ const IMAGE_ONLY = /^\s*\[?!\[([^\]]*)\]\([^)]*\)(\]\([^)]*\))?\s*$/;
 const LIQUID = /^\s*\{%.*%\}\s*$/;
 
 export function stripFrontMatter(md: string): string {
-  const m = md.match(/^﻿?---\r?\n[\s\S]*?\r?\n---\s*(\r?\n|$)/);
+  const m = md.match(/^\uFEFF?---\r?\n[\s\S]*?\r?\n---\s*(\r?\n|$)/);
   return m ? md.slice(m[0].length) : md;
 }
 
