@@ -49,7 +49,7 @@ export async function walkDetail(id: string, jobs: Jobs, port: number) {
   }
   const at = (role: Segment['role']) => timeline.segments.find((s) => s.role === role)?.start ?? null;
   const intro = (await readJson<{ app: { intro?: { text: string } } }>(dir, 'voice.json'))?.app.intro?.text ?? '';
-  const url = shareUrl(id, record.token, port);
+  const url = shareUrl(id, record.token, port, loadConfig().SHARE_HOST ?? lanAddress());
   return {
     id,
     status,
@@ -136,7 +136,7 @@ export function walkRoutes(jobs: Jobs) {
           break;
         }
       }
-      return c.json({ walks: all.slice(0, 20), active, total: all.length, lan: lanAddress() !== null });
+      return c.json({ walks: all.slice(0, 20), active, total: all.length, lan: (loadConfig().SHARE_HOST ?? lanAddress()) !== null });
     })
     .get('/:id', async (c) => {
       const id = c.req.param('id');

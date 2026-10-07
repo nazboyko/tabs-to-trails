@@ -7,12 +7,15 @@ import { onLink } from '../router';
 type ReadyDetail = Extract<WalkDetail, { ready: true }>;
 
 export function askedLine(d: ReadyDetail): string {
-  const { targetSeconds, mode, fullSeconds } = d.plan;
-  const actual = d.meta.actualSeconds;
+  const { targetSeconds } = d.plan;
+  const { actualSeconds: actual, coverage, sourceWords, scriptWords } = d.meta;
   if (targetSeconds === null) return 'The whole thing, read in full.';
-  if (mode === 'condensed') return `You asked for ${clock(targetSeconds)} · read in full it's ${aboutMinutes(fullSeconds)}`;
-  if (actual < targetSeconds * 0.9) return `You asked for ${clock(targetSeconds)}. This one is shorter, so nothing was cut.`;
-  return `You asked for ${clock(targetSeconds)} · read in full`;
+  const allFull = coverage.condensed === 0 && coverage.brief === 0;
+  if (allFull && actual < targetSeconds * 0.9) return `You asked for ${clock(targetSeconds)}. This one is shorter, so nothing was cut.`;
+  if (allFull) return `You asked for ${clock(targetSeconds)} · read in full`;
+  // The full-length estimate uses this walk's own measured pace.
+  const fullEstimate = scriptWords > 0 ? (actual * sourceWords) / scriptWords : d.plan.fullSeconds;
+  return `You asked for ${clock(targetSeconds)} · read in full it's ${aboutMinutes(fullEstimate)}`;
 }
 
 function sectionNotes(s: ReadyDetail['sections'][number]): { text: string; check?: boolean }[] {

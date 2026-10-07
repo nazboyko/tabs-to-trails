@@ -13,6 +13,11 @@ const schema = z.object({
   OLLAMA_NUM_CTX: z.coerce.number().int().min(4096).default(16384),
   VOICE: z.enum(VOICE_KEYS).default('heart'),
   WALKS_DIR: z.string().min(1).default('walks'),
+  /** Host name or address the QR code uses instead of the detected network address. */
+  SHARE_HOST: z
+    .string()
+    .regex(/^[A-Za-z0-9.-]{1,253}$/)
+    .optional(),
 });
 
 export type Config = z.infer<typeof schema> & { modelsDir: string };
