@@ -4,14 +4,14 @@ import path from 'node:path';
 import { loadConfig, type VoiceKey } from './config.js';
 import { calibration, effectiveWpm, spokenChars } from './audio/calibrate.js';
 import { encodeMp3, makeChime } from './audio/assemble.js';
-import { decideFit, type FitDecision } from './audio/fit.js';
+import { decideFit, needsScores, type FitDecision, type FitSection } from './audio/fit.js';
 import { DTYPE, VOICES, voiceText } from './audio/kokoro.js';
 import { clock, placeHalfway, type Segment } from './audio/timeline.js';
 import { concatAudio, decodeWav, encodeWav, SAMPLE_RATE, seconds, silence } from './audio/wav.js';
 import { readSource, type SourceInput } from './source/index.js';
 import { countWords, dropBackMatter, sectionLabel, splitSections, type Section } from './source/sections.js';
 import type { SourceDoc } from './source/types.js';
-import { carriedTarget, groupSections, planWalk, SECTION_GAP, wordsToSeconds, type Plan } from './script/budget.js';
+import { carriedTarget, groupSections, planWalk, SECTION_GAP, walkMode, wordsToSeconds, type Plan } from './script/budget.js';
 import { scoreSections } from './script/importance.js';
 import { closingQuestion, fitsQuestionRequest } from './script/question.js';
 import { readAsWritten, rewriteSection, type ScriptSection } from './script/rewrite.js';
@@ -308,6 +308,8 @@ interface FitState {
   decision: FitDecision | null;
   beforeSeconds: number;
   done: boolean;
+  /** Importance scores fetched for a walk read in full that ran over. */
+  scores?: Record<string, number> | null;
   /** The shortened section, kept here so a crash before script.json is written loses nothing. */
   section?: ScriptSection;
 }
@@ -340,18 +342,23 @@ async function stageFit(
   if (!fit) {
     const chime = await makeChime();
     const beforeSeconds = layout(voice, script, chime.length, info.title, plan.wpm).total / SAMPLE_RATE;
-    const decision = decideFit(
-      plan.targetSeconds,
-      beforeSeconds,
-      script.sections.map((s, i) => ({
-        id: s.id,
-        treatment: s.treatment,
-        words: s.words,
-        fullWords: plan.sections[i]?.fullWords ?? s.words,
-        seconds: (voice.sections[s.id]?.samples ?? 0) / SAMPLE_RATE,
-      })),
-    );
-    fit = { decision, beforeSeconds: Math.round(beforeSeconds * 10) / 10, done: decision === null };
+    const fitSections: FitSection[] = script.sections.map((s, i) => ({
+      id: s.id,
+      treatment: s.treatment,
+      words: s.words,
+      fullWords: plan.sections[i]?.fullWords ?? s.words,
+      seconds: (voice.sections[s.id]?.samples ?? 0) / SAMPLE_RATE,
+      score: plan.scored ? plan.sections[i]?.score : undefined,
+    }));
+    // A walk read in full that runs over condenses its least important section; ask once how they rank.
+    let scores: Record<string, number> | null | undefined;
+    if (!plan.scored && needsScores(plan.targetSeconds, beforeSeconds, fitSections)) {
+      onProgress({ stage: 'voice', state: 'active', done: script.sections.length, total: script.sections.length, detail: 'Choosing a part to shorten' });
+      scores = (await scoreSections(info.title, sections)).scores;
+      for (const f of fitSections) f.score = scores?.[f.id];
+    }
+    const decision = decideFit(plan.targetSeconds, beforeSeconds, fitSections);
+    fit = { decision, beforeSeconds: Math.round(beforeSeconds * 10) / 10, done: decision === null, scores };
     await writeJson(dir, 'fit.json', fit);
     if (!decision) return { script, fit };
   }
@@ -498,7 +505,7 @@ async function stagePack(
     createdAt,
     finishedAt: nowIso(),
     source: { kind: info.kind, url: info.url, byline: info.byline },
-    mode: plan.mode,
+    mode: walkMode(script.sections),
     targetSeconds: plan.targetSeconds,
     actualSeconds: Math.round(actualSeconds * 100) / 100,
     halfwaySeconds: halfwaySeconds === null ? null : Math.round(halfwaySeconds * 100) / 100,
