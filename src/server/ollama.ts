@@ -14,6 +14,16 @@ export class ModelMissing extends Error {
 
 export class PromptTooLarge extends Error {}
 
+/** A single model call longer than this has stalled. */
+export const CHAT_TIMEOUT_MS = 180_000;
+
+/** Drops a half-written last sentence from a reply that ran into the token limit. */
+export function trimCutOff(text: string): string {
+  const end = Math.max(text.lastIndexOf('. '), text.lastIndexOf('? '), text.lastIndexOf('! '), text.lastIndexOf('.\n'));
+  if (/[.!?]["'’”)]?\s*$/.test(text)) return text;
+  return end > 0 ? text.slice(0, end + 1) : text;
+}
+
 export interface ChatRequest {
   system: string;
   user: string;
@@ -47,12 +57,13 @@ export async function chat(req: ChatRequest): Promise<ChatReply> {
     );
   }
   const started = Date.now();
+  const timeout = AbortSignal.timeout(CHAT_TIMEOUT_MS);
   let res: Response;
   try {
     res = await fetch(`${cfg.OLLAMA_URL}/api/chat`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      signal: req.signal,
+      signal: req.signal ? AbortSignal.any([req.signal, timeout]) : timeout,
       body: JSON.stringify({
         model: cfg.OLLAMA_MODEL,
         stream: false,
@@ -72,6 +83,7 @@ export async function chat(req: ChatRequest): Promise<ChatReply> {
     });
   } catch (err) {
     if (req.signal?.aborted) throw err;
+    if (timeout.aborted) throw new Error('The model took more than 3 minutes on one request and was stopped. Try again.');
     throw new OllamaUnreachable(cfg.OLLAMA_URL);
   }
   if (res.status === 404) throw new ModelMissing(cfg.OLLAMA_MODEL);
@@ -80,13 +92,15 @@ export async function chat(req: ChatRequest): Promise<ChatReply> {
     message?: { content?: string };
     prompt_eval_count?: number;
     eval_count?: number;
+    done_reason?: string;
   };
   const promptTokens = body.prompt_eval_count ?? 0;
   if (promptTokens >= cfg.OLLAMA_NUM_CTX - maxTokens) {
     throw new PromptTooLarge(`Ollama read ${promptTokens} prompt tokens, too close to num_ctx ${cfg.OLLAMA_NUM_CTX}`);
   }
+  const text = (body.message?.content ?? '').trim();
   return {
-    text: (body.message?.content ?? '').trim(),
+    text: body.done_reason === 'length' && !req.format ? trimCutOff(text) : text,
     promptTokens,
     outputTokens: body.eval_count ?? 0,
     seconds: (Date.now() - started) / 1000,

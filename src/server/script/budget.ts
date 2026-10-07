@@ -1,15 +1,15 @@
-import { blockWords, countWords, type Block, type Section } from '../source/sections.js';
+import { blockWords, countWords, sectionLabel, type Block, type Section } from '../source/sections.js';
 
 export type Mode = 'full' | 'condensed';
 export type Coverage = 'Full' | 'Condensed' | 'Brief';
 export type Treatment = 'full' | 'condensed' | 'mention';
-export type AdaptedKind = 'code' | 'table' | 'list';
+/** Blocks a listener cannot follow as written; the model describes them. Lists are read as sentences. */
+export type AdaptedKind = 'code' | 'table';
 
 /** Spoken words a short description of each adapted block is expected to take. */
-export const ADAPTED_ESTIMATE: Record<AdaptedKind, number> = { code: 35, table: 60, list: 50 };
-/** Lists longer than this go to the model instead of being read item by item. */
-export const LONG_LIST_ITEMS = 8;
-export const LONG_LIST_WORDS = 120;
+export const ADAPTED_ESTIMATE: Record<AdaptedKind, number> = { code: 35, table: 60 };
+/** Average words a condensed section should get at least; more sections than that are grouped. */
+export const MIN_WORDS_PER_SECTION = 60;
 /** A section whose share falls under this many words becomes a one-sentence mention. */
 export const MENTION_THRESHOLD = 25;
 export const MENTION_WORDS = 20;
@@ -49,14 +49,9 @@ export interface Plan {
   sections: PlanSection[];
 }
 
-export function isLongList(block: Block): boolean {
-  return block.kind === 'list' && ((block.items?.length ?? 0) > LONG_LIST_ITEMS || countWords(block.text) > LONG_LIST_WORDS);
-}
-
 export function adaptedKind(block: Block): AdaptedKind | null {
   if (block.kind === 'code') return 'code';
   if (block.kind === 'table') return 'table';
-  if (isLongList(block)) return 'list';
   return null;
 }
 
@@ -134,6 +129,39 @@ export function carriedTarget(plan: Plan, index: number, wordsSoFar: number): nu
   const scale = (plan.budgetWords - wordsSoFar - fixed) / flexible;
   const target = Math.round(s.targetWords * Math.min(1.5, Math.max(0.3, scale)));
   return Math.min(s.fullWords, Math.max(MENTION_WORDS, target));
+}
+
+/**
+ * A 10-minute walk cannot give a hundred short sections a sentence each. When
+ * there are more sections than the budget can carry, the smallest neighbours
+ * are merged until every group can get about MIN_WORDS_PER_SECTION words.
+ * Each group keeps its member headings as lines of text for the model.
+ */
+export function groupSections(sections: Section[], budgetWords: number): Section[] {
+  const maxGroups = Math.max(3, Math.floor(budgetWords / MIN_WORDS_PER_SECTION));
+  if (sections.length <= maxGroups) return sections;
+  type Group = { members: Section[]; words: number };
+  const groups: Group[] = sections.map((s) => ({ members: [s], words: s.words + 5 }));
+  while (groups.length > maxGroups) {
+    let best = 0;
+    for (let i = 1; i < groups.length - 1; i++) {
+      if (groups[i]!.words + groups[i + 1]!.words < groups[best]!.words + groups[best + 1]!.words) best = i;
+    }
+    const a = groups[best]!;
+    const b = groups[best + 1]!;
+    groups.splice(best, 2, { members: [...a.members, ...b.members], words: a.words + b.words });
+  }
+  return groups.map((g) => {
+    const first = g.members[0]!;
+    if (g.members.length === 1) return first;
+    const sameHeading = g.members.every((m) => m.heading === first.heading);
+    const heading = sameHeading ? first.heading : `${first.heading}, and ${g.members.length - 1} more`;
+    const blocks: Block[] = g.members.flatMap((m, i) =>
+      i === 0 || sameHeading ? m.blocks : [{ kind: 'prose' as const, text: `${sectionLabel(m)}.` }, ...m.blocks],
+    );
+    const words = blocks.reduce((n, b) => n + blockWords(b), 0);
+    return { id: first.id, heading, level: first.level, words, blocks };
+  });
 }
 
 export function planWalk(input: PlanInput): Plan {

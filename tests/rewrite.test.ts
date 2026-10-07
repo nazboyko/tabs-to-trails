@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { PlanSection } from '../src/server/script/budget.js';
-import { listAsSentences, rewriteSection, soften, toSpokenText, type ChatFn } from '../src/server/script/rewrite.js';
+import { FALLBACK_NOTE, listAsSentences, rewriteSection, soften, toSpokenText, type ChatFn } from '../src/server/script/rewrite.js';
+import { trimCutOff } from '../src/server/ollama.js';
 import type { Section } from '../src/server/source/sections.js';
 
 const section: Section = {
@@ -75,6 +76,32 @@ describe('number guard in the rewrite', () => {
   });
 });
 
+describe('empty model replies', () => {
+  it('retries once, then reads the start of the section as written and says so', async () => {
+    const chat = fakeChat(['', '  ']);
+    const out = await rewriteSection(section, planned('condensed'), { title: 'T', chatFn: chat.fn });
+    expect(chat.systems).toHaveLength(2);
+    expect(out.text).toBe('I missed calls from my sister that week, and she had a real reason to ring.');
+    expect(out.note).toBe(FALLBACK_NOTE);
+  });
+
+  it('accepts the second try when it has text', async () => {
+    const chat = fakeChat(['', 'I missed calls from my sister.']);
+    const out = await rewriteSection(section, planned('condensed'), { title: 'T', chatFn: chat.fn });
+    expect(out.text).toBe('I missed calls from my sister.');
+    expect(out.note).toBeUndefined();
+  });
+});
+
+describe('number guard source', () => {
+  it('counts numbers in the title as known', async () => {
+    const chat = fakeChat(['These are the 10 tips.']);
+    const out = await rewriteSection(section, planned('condensed'), { title: '10 tips for mornings', chatFn: chat.fn });
+    expect(chat.systems).toHaveLength(1);
+    expect(out.checkNumbers).toEqual([]);
+  });
+});
+
 describe('length guard in the rewrite', () => {
   const long: Section = { ...section, words: 400, blocks: [{ kind: 'prose', text: 'word '.repeat(400).trim() + '.' }] };
   const plan = { ...planned('condensed'), fullWords: 400, sourceWords: 400, targetWords: 100 };
@@ -117,6 +144,18 @@ describe('spoken text helpers', () => {
   it('softens references to things a listener cannot see', () => {
     expect(soften('We measured it for 3 weeks, as shown below.')).toBe('We measured it for 3 weeks.');
     expect(soften('The table below has the numbers.')).toBe('The table has the numbers.');
+    expect(soften('As shown below, the cache helped.')).toBe('The cache helped.');
+    expect(soften('It helped, as shown above, a lot.')).toBe('It helped, a lot.');
+  });
+
+  it('does not change the meaning of a sentence', () => {
+    expect(soften('CPU was never seen above 90% in production.')).toBe('CPU was never seen above 90% in production.');
+    expect(soften('The error is shown above the input field.')).toBe('The error is shown above the input field.');
+  });
+
+  it('drops a half-written last sentence from a cut-off reply', () => {
+    expect(trimCutOff('One full sentence. Then a half')).toBe('One full sentence.');
+    expect(trimCutOff('All done.')).toBe('All done.');
   });
 
   it('reads a short list as sentences', () => {

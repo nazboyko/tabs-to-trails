@@ -122,6 +122,8 @@ describe('paste and file', () => {
   it('uses the given title, then a heading, then a plain name', () => {
     expect(fromText('Some text here.', 'My title').title).toBe('My title');
     expect(fromText('# Heading\n\nBody text.').title).toBe('Heading');
+    expect(fromText('## Only a subheading\n\nBody text.').title).toBe('your pasted text');
+    expect(fromText('---\ntitle: "From front matter"\n---\n\n# Heading\n\nBody.').title).toBe('From front matter');
     expect(fromText('Body text only.').title).toBe('your pasted text');
   });
 

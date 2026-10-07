@@ -1,3 +1,4 @@
+import { parseHeading, plainText } from './sections.js';
 import { SourceError, type SourceDoc } from './types.js';
 
 export const MAX_TEXT_CHARS = 400_000;
@@ -13,9 +14,16 @@ export function normalizePasted(text: string): string {
   return unix.replace(/\n+/g, '\n\n');
 }
 
-function firstHeading(md: string): string | null {
-  const m = md.match(/^\s{0,3}#{1,2}\s+(.+?)\s*#*\s*$/m);
-  return m ? m[1]!.trim() : null;
+/** The title a document gives itself: front matter first, then its first top-level heading. */
+export function ownTitle(md: string): string | null {
+  const front = md.match(/^\uFEFF?---\r?\n([\s\S]{0,4000}?)\r?\n---/);
+  const fm = front?.[1]?.match(/^title:[ \t]*["']?(.{1,300}?)["']?[ \t]*$/m);
+  if (fm?.[1]) return fm[1].trim();
+  for (const line of md.split('\n', 400)) {
+    const h = parseHeading(line);
+    if (h && h.level === 1) return plainText(h.text);
+  }
+  return null;
 }
 
 export function titleFromFileName(name: string): string {
@@ -31,7 +39,7 @@ export function fromText(text: string, title?: string): SourceDoc {
   const markdown = normalizePasted(text);
   if (!/[\p{L}\p{N}]/u.test(markdown)) throw new SourceError('There is no text to read yet. Paste something first.', false);
   const clean = title?.replace(/\s+/g, ' ').trim();
-  return { kind: 'text', title: clean || firstHeading(markdown) || 'your pasted text', markdown };
+  return { kind: 'text', title: clean || ownTitle(markdown) || 'your pasted text', markdown };
 }
 
 export function fromFile(name: string, data: Buffer | string): SourceDoc {
@@ -41,6 +49,6 @@ export function fromFile(name: string, data: Buffer | string): SourceDoc {
   const size = typeof data === 'string' ? Buffer.byteLength(data) : data.byteLength;
   if (size > MAX_FILE_BYTES) throw new SourceError('That file is larger than 2 MB. Paste a part of it instead.', false);
   const text = typeof data === 'string' ? data : new TextDecoder('utf-8').decode(data);
-  const doc = fromText(text, firstHeading(normalizePasted(text)) ?? titleFromFileName(name));
+  const doc = fromText(text, ownTitle(text) ?? titleFromFileName(name));
   return { ...doc, kind: 'file' };
 }

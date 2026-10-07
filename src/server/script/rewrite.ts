@@ -1,4 +1,4 @@
-import { chat, type ChatReply } from '../ollama.js';
+import { chat, PromptTooLarge, type ChatReply } from '../ollama.js';
 import { countWords, sectionLabel, splitSentences, type Block, type Section } from '../source/sections.js';
 import { adaptedKind, ADAPTED_ESTIMATE, coverageFor, type AdaptedKind, type Coverage, type PlanSection, type Treatment } from './budget.js';
 import { newNumbers } from './guard.js';
@@ -28,7 +28,13 @@ export interface ScriptSection {
   retried: boolean;
   modelSeconds: number;
   modelCalls: number;
+  /** Set when the model gave nothing usable and the section falls back to the source as written. */
+  note?: string;
 }
+
+export const FALLBACK_NOTE = 'The model gave no usable text here, so this part is read from the start of the section as written.';
+
+class EmptyReply extends Error {}
 
 /** Removes markdown and list syntax a model may still put in spoken text. */
 export function toSpokenText(text: string): string {
@@ -46,7 +52,7 @@ export function toSpokenText(text: string): string {
 }
 
 const SOFTEN: [RegExp, string][] = [
-  [/,?\s*\b(?:as )?(?:you can see|shown|seen|pictured|illustrated) (?:below|above|here)\b,?/gi, ''],
+  [/,?\s*\bas (?:you can see|shown|seen|pictured|illustrated) (?:below|above|here)(?=[.,;:!?]|$)/gi, ''],
   [/\b(the|this|that) (table|code|snippet|image|screenshot|picture|figure|diagram|chart|list|example) (?:below|above)\b/gi, '$1 $2'],
   [/\b(?:click|tap) here\b/gi, 'follow the link'],
   [/\b(?:see|check) (?:the )?(?:image|screenshot|picture|figure|diagram) (?:below|above)\b\.?/gi, ''],
@@ -58,8 +64,10 @@ export function soften(text: string): string {
   for (const [re, to] of SOFTEN) s = s.replace(re, to);
   return s
     .replace(/\s+([,.;:!?])/g, '$1')
+    .replace(/^[\s,;:]+/, '')
+    .replace(/([.!?])[\s,;:]*,\s*/g, '$1 ')
     .replace(/\s{2,}/g, ' ')
-    .replace(/^([a-z])/, (c) => c.toUpperCase())
+    .replace(/(^|[.!?]\s+)([a-z])/g, (_, pre: string, c: string) => pre + c.toUpperCase())
     .trim();
 }
 
@@ -111,10 +119,16 @@ export type ChatFn = (req: { system: string; user: string; maxTokens?: number; s
 
 async function askGuarded(ask: Ask, chatFn: ChatFn, signal?: AbortSignal): Promise<Guarded> {
   const maxTokens = Math.max(200, Math.round((ask.limit ?? ask.words) * 2.5) + 100);
-  const first = await chatFn({ system: ask.system, user: ask.user, maxTokens, signal });
-  let text = toSpokenText(first.text);
+  let first = await chatFn({ system: ask.system, user: ask.user, maxTokens, signal });
   let seconds = first.seconds;
   let calls = 1;
+  if (countWords(toSpokenText(first.text)) < 3) {
+    first = await chatFn({ system: ask.system, user: ask.user, maxTokens, signal });
+    seconds += first.seconds;
+    calls++;
+    if (countWords(toSpokenText(first.text)) < 3) throw new EmptyReply();
+  }
+  let text = toSpokenText(first.text);
   let retried = false;
   let missing = newNumbers(ask.source, text);
   if (missing.length) {
@@ -124,7 +138,7 @@ async function askGuarded(ask: Ask, chatFn: ChatFn, signal?: AbortSignal): Promi
     retried = true;
     const retryText = toSpokenText(second.text);
     const retryMissing = newNumbers(ask.source, retryText);
-    if (retryMissing.length <= missing.length) {
+    if (countWords(retryText) >= 3 && retryMissing.length <= missing.length) {
       text = retryText;
       missing = retryMissing;
     }
@@ -149,7 +163,7 @@ async function askGuarded(ask: Ask, chatFn: ChatFn, signal?: AbortSignal): Promi
     calls++;
     const shortText = toSpokenText(short.text);
     // A shorter version that brings in a number of its own is not worth keeping.
-    if (shortText && newNumbers(ask.source, shortText).every((n) => missing.includes(n))) {
+    if (countWords(shortText) >= ask.limit * 0.4 && newNumbers(ask.source, shortText).every((n) => missing.includes(n))) {
       text = shortText;
       shortened = true;
     }
@@ -165,6 +179,23 @@ function context(blocks: Block[], index: number, step: -1 | 1): string {
   return '(none)';
 }
 
+/** The start of a section read as written, cut at a sentence end near `words`. */
+export function openingAsWritten(section: Section, words: number): string {
+  const sentences = section.blocks.flatMap((b) => splitSentences(readAsWritten(b)));
+  const out: string[] = [];
+  let n = 0;
+  for (const sentence of sentences) {
+    if (out.length && n + countWords(sentence) > words) break;
+    out.push(sentence);
+    n += countWords(sentence);
+  }
+  return out.join(' ');
+}
+
+function modelGaveUp(err: unknown): boolean {
+  return err instanceof EmptyReply || err instanceof PromptTooLarge;
+}
+
 export interface RewriteOptions {
   title: string;
   chatFn?: ChatFn;
@@ -174,7 +205,7 @@ export interface RewriteOptions {
 export async function rewriteSection(section: Section, plan: PlanSection, opts: RewriteOptions): Promise<ScriptSection> {
   const chatFn: ChatFn = opts.chatFn ?? chat;
   const label = sectionLabel(section);
-  const sourceText = [section.heading, ...section.blocks.map(blockToMarkdown)].join('\n\n');
+  const sourceText = [opts.title, label, ...section.blocks.map((b) => blockToMarkdown(b, true))].join('\n\n');
   const base = {
     id: section.id,
     heading: section.heading,
@@ -189,6 +220,7 @@ export async function rewriteSection(section: Section, plan: PlanSection, opts: 
     let retried = false;
     let seconds = 0;
     let calls = 0;
+    let note: string | undefined;
     for (let i = 0; i < section.blocks.length; i++) {
       const block = section.blocks[i]!;
       const kind = adaptedKind(block);
@@ -201,16 +233,24 @@ export async function rewriteSection(section: Section, plan: PlanSection, opts: 
       const before = context(section.blocks, i, -1);
       const after = context(section.blocks, i, 1);
       const blockMd = blockToMarkdown(block);
-      const r = await askGuarded(
-        {
-          system: describeSystem(kind, words),
-          user: `TITLE: ${opts.title}\nSECTION: ${label}\n\nCONTEXT BEFORE:\n${before}\n\nBLOCK:\n${blockMd}\n\nCONTEXT AFTER:\n${after}`,
-          source: [before, blockMd, after, section.heading].join('\n'),
-          words,
-        },
-        chatFn,
-        opts.signal,
-      );
+      let r: Guarded;
+      try {
+        r = await askGuarded(
+          {
+            system: describeSystem(kind, words),
+            user: `TITLE: ${opts.title}\nSECTION: ${label}\n\nCONTEXT BEFORE:\n${before}\n\nBLOCK:\n${blockMd}\n\nCONTEXT AFTER:\n${after}`,
+            source: [opts.title, label, before, blockToMarkdown(block, true), after].join('\n'),
+            words,
+          },
+          chatFn,
+          opts.signal,
+        );
+      } catch (err) {
+        if (!modelGaveUp(err)) throw err;
+        parts.push(kind === 'code' ? 'There is a code example here.' : 'There is a table here.');
+        note = 'The model gave no usable description for one block here, so the script only says it is there.';
+        continue;
+      }
       parts.push(r.text);
       checkNumbers.push(...r.checkNumbers.filter((n) => !checkNumbers.includes(n)));
       retried ||= r.retried;
@@ -218,23 +258,41 @@ export async function rewriteSection(section: Section, plan: PlanSection, opts: 
       calls += r.calls;
     }
     const text = parts.join('\n\n');
-    return { ...base, coverage: 'Full', text, words: countWords(text), checkNumbers, retried, modelSeconds: seconds, modelCalls: calls };
+    return { ...base, coverage: 'Full', text, words: countWords(text), checkNumbers, retried, modelSeconds: seconds, modelCalls: calls, note };
   }
 
   const words = Math.max(12, askWords(plan.targetWords));
   const system = plan.treatment === 'mention' ? mentionSystem(words) : condenseSystem(words);
-  const r = await askGuarded(
-    {
-      system,
-      user: `TITLE: ${opts.title}\n${sectionSource(label, section.blocks)}`,
-      source: sourceText,
-      words,
-      limit: plan.treatment === 'mention' ? undefined : plan.targetWords,
-      sourceWords: plan.fullWords,
-    },
-    chatFn,
-    opts.signal,
-  );
+  let r: Guarded;
+  try {
+    r = await askGuarded(
+      {
+        system,
+        user: `TITLE: ${opts.title}\n${sectionSource(label, section.blocks)}`,
+        source: sourceText,
+        words,
+        limit: plan.treatment === 'mention' ? undefined : plan.targetWords,
+        sourceWords: plan.fullWords,
+      },
+      chatFn,
+      opts.signal,
+    );
+  } catch (err) {
+    if (!modelGaveUp(err)) throw err;
+    const text = openingAsWritten(section, plan.targetWords);
+    const outWords = countWords(text);
+    return {
+      ...base,
+      coverage: plan.treatment === 'mention' ? 'Brief' : coverageFor(outWords, plan.fullWords),
+      text,
+      words: outWords,
+      checkNumbers: [],
+      retried: false,
+      modelSeconds: 0,
+      modelCalls: 0,
+      note: FALLBACK_NOTE,
+    };
+  }
   let text = r.text;
   if (plan.treatment === 'mention') text = splitSentences(text)[0] ?? text;
   const outWords = countWords(text);

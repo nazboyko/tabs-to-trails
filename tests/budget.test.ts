@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { allocate, carriedTarget, coverageFor, MENTION_WORDS, planWalk, SECTION_GAP } from '../src/server/script/budget.js';
+import { allocate, carriedTarget, coverageFor, groupSections, MENTION_WORDS, MIN_WORDS_PER_SECTION, planWalk, SECTION_GAP } from '../src/server/script/budget.js';
 import type { Section } from '../src/server/source/sections.js';
 
 function prose(id: string, words: number, extra: Section['blocks'] = []): Section {
@@ -127,5 +127,39 @@ describe('carriedTarget', () => {
     const second = carriedTarget(plan, 1, first);
     const third = carriedTarget(plan, 2, first + second);
     expect(Math.abs(first + second + third - plan.budgetWords!)).toBeLessThanOrEqual(2);
+  });
+});
+
+describe('many small sections', () => {
+  const tips = Array.from({ length: 100 }, (_, i) => ({ ...prose(`t${i}`, 30), heading: `Tip ${i + 1}` }));
+
+  it('groups neighbours so a short walk can still cover them', () => {
+    const groups = groupSections(tips, 1152);
+    expect(groups.length).toBeLessThanOrEqual(Math.floor(1152 / MIN_WORDS_PER_SECTION));
+    expect(groups[0]!.heading).toMatch(/^Tip 1, and \d+ more$/);
+    expect(groups[0]!.blocks.some((b) => b.text === 'Tip 2.')).toBe(true);
+  });
+
+  it('keeps the grouped plan inside the budget', () => {
+    const first = planWalk({ sections: tips, targetSeconds: 600, wpm: 150, fixedSeconds: 30 });
+    const groups = groupSections(tips, first.budgetWords!);
+    const plan = planWalk({ sections: groups, targetSeconds: 600, wpm: 150, fixedSeconds: 30 });
+    const total = plan.sections.reduce((n, s) => n + s.targetWords, 0);
+    expect(total).toBeLessThanOrEqual(plan.budgetWords! * 1.05);
+  });
+
+  it('leaves a handful of sections alone', () => {
+    const few = tips.slice(0, 5);
+    expect(groupSections(few, 1200)).toBe(few);
+  });
+});
+
+describe('lists', () => {
+  it('are read as sentences in full and never counted as a short description', () => {
+    const items = Array.from({ length: 12 }, (_, i) => `Item ${i} has exactly seven words here`);
+    const s: Section = { id: 'l', heading: 'L', level: 2, words: 84, blocks: [{ kind: 'list', text: items.join('\n'), items }] };
+    const plan = planWalk({ sections: [s], targetSeconds: null, wpm: 150, fixedSeconds: 30 });
+    expect(plan.sections[0]!.adapted).toEqual([]);
+    expect(plan.fullWords).toBe(84);
   });
 });

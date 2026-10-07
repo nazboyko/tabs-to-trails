@@ -21,13 +21,8 @@ Say in one sentence what SOURCE covers, so a listener knows it was there.
 Target length: ${words} words. Output only the spoken text.`;
 }
 
-export function describeSystem(kind: 'code' | 'table' | 'list', words: number): string {
-  const what =
-    kind === 'code'
-      ? 'Describe what the code in BLOCK does.'
-      : kind === 'table'
-        ? 'Tell the listener what the table in BLOCK shows.'
-        : 'Turn the list in BLOCK into a few spoken sentences that keep its main points.';
+export function describeSystem(kind: 'code' | 'table', words: number): string {
+  const what = kind === 'code' ? 'Describe what the code in BLOCK does.' : 'Tell the listener what the table in BLOCK shows.';
   return `${RULES}
 ${what} Your words replace BLOCK and are read between the paragraphs around it,
 so do not repeat CONTEXT and do not start with "This section".
@@ -52,10 +47,30 @@ export function retryNote(numbers: string[]): string {
   return `\n\nYour previous version used numbers that are not in SOURCE: ${numbers.join(', ')}. Use only numbers that appear in SOURCE.`;
 }
 
-export function blockToMarkdown(b: Block): string {
+/** Code and tables are only described, so a very long one is sent as its start and end. */
+const MAX_BLOCK_LINES = { code: 80, table: 40 };
+const MAX_BLOCK_CHARS = 6000;
+
+function trimBlock(text: string, kind: 'code' | 'table'): string {
+  const lines = text.split('\n');
+  let out = text;
+  const max = MAX_BLOCK_LINES[kind];
+  if (lines.length > max) {
+    const head = lines.slice(0, Math.round(max * 0.75));
+    const tail = lines.slice(-Math.round(max * 0.2));
+    out = [...head, `... (${lines.length - head.length - tail.length} more lines) ...`, ...tail].join('\n');
+  }
+  if (out.length > MAX_BLOCK_CHARS) out = `${out.slice(0, MAX_BLOCK_CHARS - 1000)}\n...\n${out.slice(-800)}`;
+  return out;
+}
+
+/** Markdown for the model. `full` keeps long code and tables whole (for the number guard). */
+export function blockToMarkdown(b: Block, full = false): string {
   switch (b.kind) {
     case 'code':
-      return '```' + (b.lang ?? '') + '\n' + b.text + '\n```';
+      return '```' + (b.lang ?? '') + '\n' + (full ? b.text : trimBlock(b.text, 'code')) + '\n```';
+    case 'table':
+      return full ? b.text : trimBlock(b.text, 'table');
     case 'list':
       return (b.items ?? [b.text]).map((i) => `- ${i}`).join('\n');
     case 'quote':
@@ -68,5 +83,5 @@ export function blockToMarkdown(b: Block): string {
 }
 
 export function sectionSource(heading: string, blocks: Block[]): string {
-  return `SECTION: ${heading}\n\nSOURCE:\n${blocks.map(blockToMarkdown).join('\n\n')}`;
+  return `SECTION: ${heading}\n\nSOURCE:\n${blocks.map((b) => blockToMarkdown(b)).join('\n\n')}`;
 }
