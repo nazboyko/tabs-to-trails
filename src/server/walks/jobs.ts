@@ -5,7 +5,7 @@ import { runPipeline, type BuildRequest, type Meta, type Progress, type StageNam
 import { SourceError } from '../source/types.js';
 import { listWalkIds, newId, newToken, readJson, walkDir, writeJson } from './store.js';
 
-export type JobState = 'queued' | 'running' | 'done' | 'failed';
+export type JobState = 'queued' | 'running' | 'done' | 'failed' | 'cancelled';
 
 export const STAGES: StageName[] = ['read', 'plan', 'rewrite', 'voice', 'pack'];
 
@@ -68,8 +68,17 @@ export async function lockedByOther(id: string): Promise<number | null> {
  * at the same time on one walks folder; a walk is only ever worked on by one.
  */
 async function takeLock(id: string): Promise<boolean> {
+  const file = path.join(walkDir(id), LOCK);
+  const body = JSON.stringify({ pid: process.pid, at: new Date().toISOString() });
+  try {
+    await fs.writeFile(file, body, { flag: 'wx' });
+    return true;
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== 'EEXIST') throw err;
+  }
+  // A lock is there: ours from before a crash, or a stale one from a process that is gone.
   if (await lockedByOther(id)) return false;
-  await fs.writeFile(path.join(walkDir(id), LOCK), JSON.stringify({ pid: process.pid, at: new Date().toISOString() }));
+  await fs.writeFile(file, body);
   return true;
 }
 
@@ -124,9 +133,10 @@ function stageVerb(stage: StageName): string {
 
 export class Jobs {
   private queue: string[] = [];
-  private running: { id: string; controller: AbortController } | null = null;
+  private running: { id: string; controller: AbortController; status: Status | null } | null = null;
   private listeners = new Map<string, Set<Listener>>();
-  private statuses = new Map<string, Status>();
+  private cancelled = new Set<string>();
+  private retrying = new Set<string>();
 
   constructor(private readonly runner: typeof runPipeline = runPipeline) {}
 
@@ -144,8 +154,10 @@ export class Jobs {
     return readJson<WalkRecord>(walkDir(id), 'walk.json');
   }
 
+  /** The running walk's status comes from memory; every other walk's from disk, which another process may have changed. */
   async status(id: string): Promise<Status | null> {
-    return this.statuses.get(id) ?? (await readJson<Status>(walkDir(id), 'status.json'));
+    if (this.running?.id === id && this.running.status) return this.running.status;
+    return readJson<Status>(walkDir(id), 'status.json');
   }
 
   subscribe(id: string, fn: Listener): () => void {
@@ -160,20 +172,28 @@ export class Jobs {
 
   /** Puts a failed walk back in the queue. Finished stages are read from its folder. */
   async retry(id: string): Promise<boolean> {
-    const status = await this.status(id);
-    if (!status || status.state !== 'failed') return false;
-    await this.save(id, { ...status, state: 'queued', error: undefined, updatedAt: new Date().toISOString() });
-    this.enqueue(id);
-    return true;
+    if (this.running?.id === id || this.queue.includes(id) || this.retrying.has(id)) return false;
+    this.retrying.add(id);
+    try {
+      const status = await this.status(id);
+      if (!status || status.state !== 'failed') return false;
+      await this.save(id, { ...status, state: 'queued', error: undefined, updatedAt: new Date().toISOString() });
+      this.enqueue(id);
+      return true;
+    } finally {
+      this.retrying.delete(id);
+    }
   }
 
-  /** Stops a queued or running walk and removes its folder. */
+  /** Stops a queued or running walk, tells whoever is watching, and removes its folder. */
   async cancel(id: string): Promise<boolean> {
     const status = await this.status(id);
     if (!status || status.state === 'done') return false;
     this.queue = this.queue.filter((q) => q !== id);
+    this.cancelled.add(id);
     if (this.running?.id === id) this.running.controller.abort();
-    this.statuses.delete(id);
+    const gone: Status = { ...status, state: 'cancelled', updatedAt: new Date().toISOString() };
+    for (const fn of this.listeners.get(id) ?? []) fn(gone);
     await fs.rm(walkDir(id), { recursive: true, force: true });
     return true;
   }
@@ -204,7 +224,8 @@ export class Jobs {
 
   /** Disk first, then listeners, so whoever hears "done" can read the files. */
   private async save(id: string, status: Status, meta?: Meta): Promise<void> {
-    this.statuses.set(id, status);
+    if (this.cancelled.has(id)) return;
+    if (this.running?.id === id) this.running.status = status;
     try {
       await writeJson(walkDir(id), 'status.json', status);
     } catch {
@@ -215,23 +236,26 @@ export class Jobs {
 
   private async next(): Promise<void> {
     if (this.running || !this.queue.length) return;
+    // The slot is claimed before the first await, so two walks never run at once.
     const id = this.queue.shift()!;
-    const record = await this.record(id);
-    if (!record || !(await takeLock(id))) return void this.next();
     const controller = new AbortController();
-    this.running = { id, controller };
-    let status = (await this.status(id)) ?? freshStatus();
-    status = { ...status, state: 'running', error: undefined };
-    await this.save(id, status);
+    const slot: { id: string; controller: AbortController; status: Status | null } = { id, controller, status: null };
+    this.running = slot;
     let current: StageName = 'read';
     let writes = Promise.resolve();
+    let status: Status = freshStatus();
     try {
+      const record = await this.record(id);
+      if (!record || !(await takeLock(id))) return;
+      status = { ...((await readJson<Status>(walkDir(id), 'status.json')) ?? status), state: 'running', error: undefined };
+      await this.save(id, status);
       const meta = await this.runner(
         id,
         walkDir(id),
         record.request,
         record.createdAt,
         (p) => {
+          if (controller.signal.aborted) return;
           current = p.stage;
           status = applyProgress(status, p);
           const snapshot = status;
@@ -241,17 +265,21 @@ export class Jobs {
       );
       await writes;
       await dropLock(id);
+      // The slot is free before anyone hears "done" or "failed", so a retry is accepted at once.
+      if (this.running === slot) this.running = null;
       const stages = Object.fromEntries(STAGES.map((s) => [s, { ...status.stages[s], state: 'done' }])) as Status['stages'];
       await this.save(id, { ...status, state: 'done', stages, updatedAt: new Date().toISOString() }, meta);
     } catch (err) {
-      await writes;
+      await writes.catch(() => undefined);
       await dropLock(id).catch(() => undefined);
+      if (this.running === slot) this.running = null;
       if (!controller.signal.aborted) {
-        await this.save(id, { ...status, state: 'failed', error: friendlyError(err, current), updatedAt: new Date().toISOString() });
+        await this.save(id, { ...status, state: 'failed', error: friendlyError(err, current), updatedAt: new Date().toISOString() }).catch(() => undefined);
       }
     } finally {
       await dropLock(id).catch(() => undefined);
-      this.running = null;
+      this.cancelled.delete(id);
+      if (this.running === slot) this.running = null;
       void this.next();
     }
   }

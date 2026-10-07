@@ -29,14 +29,19 @@ function hostName(value: string | undefined): string | null {
   }
 }
 
-function localOrigin(origin: string | undefined): boolean {
+/** An Origin header is fine when absent or when it is this very app (host and port). */
+function sameOrigin(origin: string | undefined, host: string | undefined): boolean {
   if (!origin) return true;
   try {
-    return LOCAL_HOSTS.has(new URL(origin).hostname);
+    const o = new URL(origin);
+    return LOCAL_HOSTS.has(o.hostname) && o.host === host;
   } catch {
     return false;
   }
 }
+
+/** The only paths the network may reach: the phone page, its data and audio, and static files. */
+const PUBLIC = /^\/w\/[a-f0-9]{12}(?:\/info|\/audio)?$|^\/assets\/[\w.-]+$|^\/favicon\.svg$/;
 
 async function readOptional(file: string): Promise<string | null> {
   try {
@@ -52,21 +57,25 @@ export interface AccessRequest {
   remote: string | undefined;
   host: string | undefined;
   origin: string | undefined;
+  /** Sec-Fetch-Site, sent by browsers on every request. */
+  fetchSite?: string;
 }
 
 /**
  * The access rule. Everything answers only to this computer, except the
  * phone page and its audio (which also need the walk's token) and the static
- * files that page loads. /api also checks the Host header, against DNS
- * rebinding, and the Origin of writes, against other sites posting here.
+ * files that page loads. /api also checks the Host header (against DNS
+ * rebinding), refuses requests a browser marks as coming from another site,
+ * and checks the Origin of writes, so no other page can start a build.
  */
 export function access(req: AccessRequest): 'ok' | 'hidden' | 'host' | 'origin' {
-  if (req.path.startsWith('/w/') || req.path.startsWith('/assets/') || req.path === '/favicon.svg') return 'ok';
+  if (PUBLIC.test(req.path)) return 'ok';
   if (!isLoopback(req.remote)) return 'hidden';
   if (req.path.startsWith('/api/')) {
     const host = hostName(req.host);
     if (!host || !LOCAL_HOSTS.has(host)) return 'host';
-    if (req.method !== 'GET' && req.method !== 'HEAD' && !localOrigin(req.origin)) return 'origin';
+    if (req.fetchSite === 'cross-site' || req.fetchSite === 'same-site') return 'origin';
+    if (req.method !== 'GET' && req.method !== 'HEAD' && !sameOrigin(req.origin, req.host)) return 'origin';
   }
   return 'ok';
 }
@@ -81,7 +90,14 @@ export function createApp(jobs: Jobs, webDir = WEB_DIR) {
     } catch {
       remote = undefined;
     }
-    const decision = access({ path: c.req.path, method: c.req.method, remote, host: c.req.header('host'), origin: c.req.header('origin') });
+    const decision = access({
+      path: c.req.path,
+      method: c.req.method,
+      remote,
+      host: c.req.header('host'),
+      origin: c.req.header('origin'),
+      fetchSite: c.req.header('sec-fetch-site'),
+    });
     if (decision === 'hidden') return c.text('Not found', 404);
     if (decision === 'host') return c.json({ error: 'Open the app at localhost.' }, 403);
     if (decision === 'origin') return c.json({ error: 'Requests from other sites are not accepted.' }, 403);

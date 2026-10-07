@@ -23,6 +23,10 @@ export const BuildBody = z.object({
 export function buildRoutes(jobs: Jobs) {
   return new Hono()
     .post('/', async (c) => {
+      // JSON only: a plain form or text/plain post from another page cannot start a build.
+      if (!/^application\/json\b/i.test(c.req.header('content-type') ?? '')) {
+        return c.json({ error: 'That request is missing something. Reload the page and try again.' }, 415);
+      }
       const parsed = BuildBody.safeParse(await c.req.json().catch(() => null));
       if (!parsed.success) return c.json({ error: 'That request is missing something. Reload the page and try again.' }, 400);
       const body = parsed.data;
@@ -49,7 +53,7 @@ export function buildRoutes(jobs: Jobs) {
         const send = async (status: Status, meta?: Meta) => {
           if (closed) return;
           await stream.writeSSE({ event: 'status', data: JSON.stringify({ status, meta }) });
-          if (status.state === 'done' || status.state === 'failed') wake();
+          if (status.state === 'done' || status.state === 'failed' || status.state === 'cancelled') wake();
         };
         const unsubscribe = jobs.subscribe(id, (status, meta) => void send(status, meta).catch(() => wake()));
         stream.onAbort(() => {

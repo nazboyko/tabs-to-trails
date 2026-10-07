@@ -15,14 +15,14 @@ describe('access rule', () => {
   it('lets this computer use the API', () => {
     expect(req({})).toBe('ok');
     expect(req({ remote: '::1', host: '[::1]:8787' })).toBe('ok');
-    expect(req({ remote: '::ffff:127.0.0.1', method: 'POST', path: '/api/build', origin: 'http://localhost:5173' })).toBe('ok');
+    expect(req({ remote: '::ffff:127.0.0.1', method: 'POST', path: '/api/build', host: 'localhost:5173', origin: 'http://localhost:5173' })).toBe('ok');
   });
 
   it('hides everything but the phone page and assets from the network', () => {
     expect(req({ remote: '192.0.2.10' })).toBe('hidden');
     expect(req({ remote: '192.0.2.10', path: '/' })).toBe('hidden');
     expect(req({ remote: '192.0.2.10', path: '/w/abcdef123456' })).toBe('ok');
-    expect(req({ remote: '192.0.2.10', path: '/assets/phone.js' })).toBe('ok');
+    expect(req({ remote: '192.0.2.10', path: '/assets/phone-C3HpgIHh.js' })).toBe('ok');
     expect(req({ remote: '192.0.2.10', path: '/favicon.svg' })).toBe('ok');
     expect(req({ remote: undefined })).toBe('hidden');
   });
@@ -30,7 +30,23 @@ describe('access rule', () => {
   it('refuses a foreign Host (DNS rebinding) and foreign Origin on writes', () => {
     expect(req({ host: 'evil.example:8787' })).toBe('host');
     expect(req({ method: 'POST', path: '/api/build', origin: 'https://evil.example' })).toBe('origin');
-    expect(req({ method: 'GET', origin: 'https://evil.example' })).toBe('ok');
+    expect(req({ method: 'POST', path: '/api/build', origin: 'http://localhost:3000' })).toBe('origin');
+    expect(req({ method: 'POST', path: '/api/build', origin: 'http://localhost:8787' })).toBe('ok');
+  });
+
+  it('refuses browser requests that another site started', () => {
+    expect(req({ path: '/api/voices/heart/preview', fetchSite: 'cross-site' })).toBe('origin');
+    expect(req({ path: '/api/voices/heart/preview', fetchSite: 'same-site' })).toBe('origin');
+    expect(req({ path: '/api/voices/heart/preview', fetchSite: 'same-origin' })).toBe('ok');
+    expect(req({ path: '/', fetchSite: 'cross-site' })).toBe('ok');
+  });
+
+  it('opens only the exact phone routes to the network', () => {
+    expect(req({ remote: '192.0.2.10', path: '/w/abcdef123456/info' })).toBe('ok');
+    expect(req({ remote: '192.0.2.10', path: '/w/abcdef123456/audio' })).toBe('ok');
+    expect(req({ remote: '192.0.2.10', path: '/w/..%2fapi/walks' })).toBe('hidden');
+    expect(req({ remote: '192.0.2.10', path: '/assets/..%2f..%2findex.html' })).toBe('hidden');
+    expect(req({ remote: '192.0.2.10', path: '/w/abcdef123456/other' })).toBe('hidden');
   });
 });
 
@@ -153,6 +169,63 @@ describe('Jobs', () => {
     expect(await jobs.resumeAll()).toEqual([id]);
     await done;
     await expect(fs.access(path.join(walkDir(id), 'run.lock'))).rejects.toThrow();
+  });
+
+  it('runs queued walks one at a time and in order', async () => {
+    let active = 0;
+    let most = 0;
+    const order: string[] = [];
+    const runner: typeof runPipeline = async (runId) => {
+      active++;
+      most = Math.max(most, active);
+      order.push(runId);
+      await new Promise((r) => setTimeout(r, 15));
+      active--;
+      return meta;
+    };
+    const jobs = new Jobs(runner);
+    const ids: string[] = [];
+    for (let i = 0; i < 3; i++) {
+      const id = `c${i}`.padEnd(12, 'c');
+      ids.push(id);
+      await fs.mkdir(walkDir(id), { recursive: true });
+      await writeJson(walkDir(id), 'walk.json', { id, token: 't'.repeat(24), createdAt: `2026-10-07T10:00:0${i}.000Z`, request: { source: { kind: 'text', text: 'x' }, minutes: 10, voice: 'heart' } });
+      await writeJson(walkDir(id), 'status.json', { ...freshStatus(), state: 'queued' });
+    }
+    const all = Promise.all(ids.map((id) => waitFor(jobs, id, 'done')));
+    await jobs.resumeAll();
+    await all;
+    expect(most).toBe(1);
+    expect(order).toEqual(ids);
+  });
+
+  it('runs a walk once when retry is pressed twice', async () => {
+    let calls = 0;
+    const jobs = new Jobs(async (_id, _dir, _req, _at, onProgress) => {
+      calls++;
+      onProgress?.({ stage: 'voice', state: 'active' });
+      if (calls === 1) throw new Error('first try fails');
+      await new Promise((r) => setTimeout(r, 15));
+      return meta;
+    });
+    const record = await jobs.create({ source: { kind: 'text', text: 'Hello there.' }, minutes: 10, voice: 'heart' });
+    await waitFor(jobs, record.id, 'failed');
+    const done = waitFor(jobs, record.id, 'done');
+    const answers = await Promise.all([jobs.retry(record.id), jobs.retry(record.id)]);
+    await done;
+    expect(answers.filter(Boolean)).toHaveLength(1);
+    expect(calls).toBe(2);
+  });
+
+  it('tells watchers when a walk is cancelled', async () => {
+    let release: () => void = () => undefined;
+    const jobs = new Jobs(() => new Promise<Meta>((resolve) => (release = () => resolve(meta))));
+    const record = await jobs.create({ source: { kind: 'text', text: 'one' }, minutes: 10, voice: 'heart' });
+    const heard = waitFor(jobs, record.id, 'cancelled');
+    await new Promise((r) => setTimeout(r, 10));
+    expect(await jobs.cancel(record.id)).toBe(true);
+    expect((await heard).state).toBe('cancelled');
+    release();
   });
 
   it('cancels a queued walk and removes its folder', async () => {
