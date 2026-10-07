@@ -163,3 +163,11 @@ describe('lists', () => {
     expect(plan.fullWords).toBe(84);
   });
 });
+
+describe('untitled parts', () => {
+  it('labels grouped parts of a text without headings by number', () => {
+    const parts = Array.from({ length: 30 }, (_, i) => ({ ...prose(`p${i}`, 40), heading: '', part: i + 1 }));
+    const groups = groupSections(parts, 600);
+    expect(groups[0]!.heading).toMatch(/^Parts 1 to \d+$/);
+  });
+});

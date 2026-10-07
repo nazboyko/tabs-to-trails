@@ -154,8 +154,13 @@ export function groupSections(sections: Section[], budgetWords: number): Section
   return groups.map((g) => {
     const first = g.members[0]!;
     if (g.members.length === 1) return first;
+    const last = g.members[g.members.length - 1]!;
     const sameHeading = g.members.every((m) => m.heading === first.heading);
-    const heading = sameHeading ? first.heading : `${first.heading}, and ${g.members.length - 1} more`;
+    const heading = !sameHeading
+      ? `${sectionLabel(first)}, and ${g.members.length - 1} more`
+      : first.heading === '' && first.part && last.part
+        ? `Parts ${first.part} to ${last.part}`
+        : first.heading;
     const blocks: Block[] = g.members.flatMap((m, i) =>
       i === 0 || sameHeading ? m.blocks : [{ kind: 'prose' as const, text: `${sectionLabel(m)}.` }, ...m.blocks],
     );

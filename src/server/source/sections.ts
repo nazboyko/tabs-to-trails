@@ -366,6 +366,8 @@ export function dropBackMatter(sections: Section[]): { kept: Section[]; dropped:
   return { kept: kept.length ? kept : sections, dropped: kept.length ? dropped : [] };
 }
 
+/** A text without headings has parts with an empty heading: "Part 3". */
 export function sectionLabel(s: Pick<Section, 'heading' | 'part'>): string {
+  if (!s.heading) return s.part ? `Part ${s.part}` : 'The text';
   return s.part ? `${s.heading}, part ${s.part}` : s.heading;
 }
