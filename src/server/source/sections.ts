@@ -1,0 +1,311 @@
+/**
+ * Markdown is the internal format. This module splits it into sections by
+ * heading and keeps the kind of every block, so the script stage can read
+ * prose as written and send only code, tables and long lists to the model.
+ */
+
+export type BlockKind = 'prose' | 'list' | 'code' | 'table' | 'quote' | 'image';
+
+export interface Block {
+  kind: BlockKind;
+  /** Raw markdown for code and tables, plain text for everything else. */
+  text: string;
+  /** List items as plain text. */
+  items?: string[];
+  lang?: string;
+}
+
+export interface Section {
+  id: string;
+  heading: string;
+  level: number;
+  /** 1-based part number when a long section was split. */
+  part?: number;
+  /** Words a listener would hear if the section were read as written. */
+  words: number;
+  blocks: Block[];
+}
+
+/** Sections longer than this are split by paragraph groups. */
+export const MAX_SECTION_WORDS = 1200;
+
+const FENCE = /^ {0,3}(`{3,}|~{3,})\s*([\w+#.-]*)/;
+const HEADING = /^ {0,3}(#{1,6})\s+(.*?)\s*#*\s*$/;
+const RULE = /^ {0,3}([-*_])(\s*\1){2,}\s*$/;
+const LIST_ITEM = /^(\s*)([-*+]|\d{1,3}[.)])\s+(.*)$/;
+const QUOTE = /^ {0,3}>\s?(.*)$/;
+const TABLE_SEPARATOR = /^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?\s*$/;
+const IMAGE_ONLY = /^\s*\[?!\[([^\]]*)\]\([^)]*\)(\]\([^)]*\))?\s*$/;
+const LIQUID = /^\s*\{%.*%\}\s*$/;
+
+export function stripFrontMatter(md: string): string {
+  const m = md.match(/^﻿?---\r?\n[\s\S]*?\r?\n---\s*(\r?\n|$)/);
+  return m ? md.slice(m[0].length) : md;
+}
+
+const ENTITIES: Record<string, string> = {
+  '&amp;': '&',
+  '&lt;': '<',
+  '&gt;': '>',
+  '&quot;': '"',
+  '&#39;': "'",
+  '&apos;': "'",
+  '&nbsp;': ' ',
+  '&mdash;': ', ',
+  '&ndash;': '-',
+  '&hellip;': '...',
+};
+
+function hostOf(url: string): string {
+  try {
+    return new URL(url).hostname.replace(/^www\./, '');
+  } catch {
+    return 'a link';
+  }
+}
+
+/** A markdown link whose text may hold one level of brackets and whose URL may hold parentheses. */
+const LINK = /\[((?:\\.|\[[^\]]*\]|[^\]\\])+)\]\((?:[^()\s]|\([^()\s]*\))*(?:\s+"[^"]*")?\)/g;
+/** Reference links into the same page: [[1]](#cite_note-1), [\[a\]](#note-a). */
+const CITATION_LINK = /\[(?:\\?\[[^\]]{1,24}\\?\]|\^?\d{1,3})\]\(#[^)]*\)/g;
+const EDIT_LINK = /\\?\[\[edit\]\([^)]*\)\\?\]/gi;
+/** Reference marks left in plain text: "walked.[3]", "[citation needed]". */
+const CITATION =
+  /(?<=^|[\s.,;:!?)"'’”])\[\d{1,3}\]|\[\s*(?:edit|citation needed|clarification needed|note \d+|nb \d+|when\?|who\?|by whom\?|according to whom\?|dubious[^\]]*|failed verification)\s*\]/gi;
+
+/** Inline markdown to plain text a voice can read. */
+export function plainText(md: string): string {
+  let s = md;
+  s = s.replace(/\{%.*?%\}/g, ' ');
+  s = s.replace(/!\[[^\]]*\]\([^)]*\)/g, ' ');
+  s = s.replace(/\[\^[^\]]+\]/g, '');
+  s = s.replace(CITATION_LINK, '').replace(EDIT_LINK, '');
+  s = s.replace(LINK, '$1');
+  s = s.replace(/\[((?:\\.|[^\]\\])+)\]\[[^\]]*\]/g, '$1');
+  s = s.replace(/<(https?:\/\/[^>\s]+)>/g, (_, u: string) => hostOf(u));
+  s = s.replace(/<\/?[a-zA-Z][^>]*>/g, ' ');
+  s = s.replace(/(^|[\s(])(https?:\/\/[^\s)]+)/g, (_, pre: string, u: string) => `${pre}${hostOf(u)}`);
+  s = s.replace(/`+([^`]+?)`+/g, '$1');
+  s = s.replace(/\*\*(.+?)\*\*/g, '$1');
+  s = s.replace(/__(.+?)__/g, '$1');
+  s = s.replace(/(^|[^\w*])\*(?!\s)(.+?)(?<!\s)\*(?!\w)/g, '$1$2');
+  s = s.replace(/(^|[^\w])_(?!\s)(.+?)(?<!\s)_(?!\w)/g, '$1$2');
+  s = s.replace(/~~(.+?)~~/g, '$1');
+  s = s.replace(/&[a-z#0-9]+;/gi, (e) => ENTITIES[e.toLowerCase()] ?? ' ');
+  s = s.replace(/\\([\\`*_{}[\]()#+\-.!|>])/g, '$1');
+  s = s.replace(CITATION, '');
+  s = s.replace(/\s+/g, ' ').trim();
+  return s;
+}
+
+export function countWords(text: string): number {
+  const m = text.match(/[\p{L}\p{N}][\p{L}\p{N}'’.,-]*/gu);
+  return m ? m.length : 0;
+}
+
+type Raw = Block | { kind: 'heading'; level: number; text: string };
+
+function isBlank(line: string): boolean {
+  return line.trim() === '';
+}
+
+function startsBlock(line: string, next: string | undefined): boolean {
+  return (
+    FENCE.test(line) ||
+    HEADING.test(line) ||
+    RULE.test(line) ||
+    LIST_ITEM.test(line) ||
+    QUOTE.test(line) ||
+    IMAGE_ONLY.test(line) ||
+    LIQUID.test(line) ||
+    (line.includes('|') && next !== undefined && TABLE_SEPARATOR.test(next))
+  );
+}
+
+function meaningfulAlt(alt: string): string | null {
+  const text = plainText(alt);
+  if (countWords(text) < 4) return null;
+  if (/\.(png|jpe?g|gif|webp|svg)$/i.test(text)) return null;
+  return text;
+}
+
+export function parseBlocks(markdown: string): Raw[] {
+  const lines = stripFrontMatter(markdown)
+    .replace(/\r\n?/g, '\n')
+    .replace(/<!--[\s\S]*?-->/g, '')
+    .split('\n');
+  const out: Raw[] = [];
+  let i = 0;
+  while (i < lines.length) {
+    const line = lines[i]!;
+    if (isBlank(line) || RULE.test(line) || LIQUID.test(line)) {
+      i++;
+      continue;
+    }
+    const fence = line.match(FENCE);
+    if (fence) {
+      const marker = fence[1]!;
+      const body: string[] = [];
+      i++;
+      while (i < lines.length && !lines[i]!.trim().startsWith(marker)) body.push(lines[i++]!);
+      i++;
+      if (body.some((l) => l.trim() !== '')) {
+        out.push({ kind: 'code', text: body.join('\n'), lang: fence[2] || undefined });
+      }
+      continue;
+    }
+    const heading = line.match(HEADING);
+    if (heading) {
+      out.push({ kind: 'heading', level: heading[1]!.length, text: plainText(heading[2]!) });
+      i++;
+      continue;
+    }
+    if (line.includes('|') && i + 1 < lines.length && TABLE_SEPARATOR.test(lines[i + 1]!)) {
+      const rows: string[] = [];
+      while (i < lines.length && lines[i]!.includes('|') && !isBlank(lines[i]!)) rows.push(lines[i++]!);
+      out.push({ kind: 'table', text: rows.join('\n') });
+      continue;
+    }
+    const image = line.match(IMAGE_ONLY);
+    if (image) {
+      const alt = meaningfulAlt(image[1]!);
+      if (alt) out.push({ kind: 'image', text: alt });
+      i++;
+      continue;
+    }
+    if (QUOTE.test(line)) {
+      const body: string[] = [];
+      while (i < lines.length && QUOTE.test(lines[i]!)) body.push(lines[i++]!.match(QUOTE)![1]!);
+      const text = plainText(body.join(' '));
+      if (text) out.push({ kind: 'quote', text });
+      continue;
+    }
+    if (LIST_ITEM.test(line)) {
+      const items: string[] = [];
+      const raw: string[] = [];
+      while (i < lines.length) {
+        const l = lines[i]!;
+        const item = l.match(LIST_ITEM);
+        if (item) {
+          items.push(item[3]!);
+          raw.push(l);
+          i++;
+          continue;
+        }
+        if (!isBlank(l) && /^\s{2,}/.test(l) && items.length) {
+          items[items.length - 1] += ' ' + l.trim();
+          raw.push(l);
+          i++;
+          continue;
+        }
+        if (isBlank(l) && i + 1 < lines.length && (LIST_ITEM.test(lines[i + 1]!) || /^\s{2,}\S/.test(lines[i + 1]!))) {
+          i++;
+          continue;
+        }
+        break;
+      }
+      const clean = items.map(plainText).filter((t) => t !== '');
+      if (clean.length) out.push({ kind: 'list', text: clean.join('\n'), items: clean });
+      continue;
+    }
+    const para: string[] = [];
+    while (i < lines.length && !isBlank(lines[i]!) && (para.length === 0 || !startsBlock(lines[i]!, lines[i + 1]))) {
+      para.push(lines[i++]!);
+    }
+    const text = plainText(para.join(' '));
+    if (text) out.push({ kind: 'prose', text });
+  }
+  return out;
+}
+
+export function blockWords(block: Block): number {
+  if (block.kind === 'code' || block.kind === 'table') return 0;
+  return countWords(block.text);
+}
+
+function sectionWords(blocks: Block[]): number {
+  return blocks.reduce((n, b) => n + blockWords(b), 0);
+}
+
+/** Very long paragraphs are cut at sentence ends so a section can be split. */
+const MAX_PARAGRAPH_WORDS = 400;
+
+export function splitSentences(text: string): string[] {
+  return text
+    .split(/(?<=[.!?…]["'’”)\]]*)\s+(?=["'“‘(\[]?[\p{Lu}\p{N}])/u)
+    .map((p) => p.trim())
+    .filter((p) => p !== '');
+}
+
+function splitParagraph(block: Block): Block[] {
+  if (block.kind !== 'prose' || countWords(block.text) <= MAX_PARAGRAPH_WORDS) return [block];
+  const out: Block[] = [];
+  let buf: string[] = [];
+  let words = 0;
+  for (const sentence of splitSentences(block.text)) {
+    const w = countWords(sentence);
+    if (buf.length && words + w > MAX_PARAGRAPH_WORDS / 2) {
+      out.push({ kind: 'prose', text: buf.join(' ') });
+      buf = [];
+      words = 0;
+    }
+    buf.push(sentence);
+    words += w;
+  }
+  if (buf.length) out.push({ kind: 'prose', text: buf.join(' ') });
+  return out;
+}
+
+/** Splits an oversized section into parts of whole blocks. */
+function splitLong(heading: string, level: number, input: Block[]): Omit<Section, 'id'>[] {
+  const total = sectionWords(input);
+  if (total <= MAX_SECTION_WORDS) return [{ heading, level, words: total, blocks: input }];
+  const blocks = input.flatMap(splitParagraph);
+  const partsWanted = Math.ceil(total / MAX_SECTION_WORDS);
+  const perPart = total / partsWanted;
+  const parts: Block[][] = [[]];
+  for (const b of blocks) {
+    const current = parts[parts.length - 1]!;
+    const words = sectionWords(current);
+    if (current.length && words + blockWords(b) / 2 > perPart && parts.length < partsWanted) parts.push([b]);
+    else current.push(b);
+  }
+  return parts.map((p, n) => ({ heading, level, part: n + 1, words: sectionWords(p), blocks: p }));
+}
+
+export function splitSections(markdown: string): Section[] {
+  const raw = parseBlocks(markdown);
+  const groups: { heading: string; level: number; blocks: Block[] }[] = [];
+  let current = { heading: '', level: 0, blocks: [] as Block[] };
+  for (const r of raw) {
+    if (r.kind === 'heading') {
+      if (current.blocks.length) groups.push(current);
+      current = { heading: r.text, level: r.level, blocks: [] };
+    } else {
+      current.blocks.push(r);
+    }
+  }
+  if (current.blocks.length) groups.push(current);
+
+  const sections: Omit<Section, 'id'>[] = [];
+  for (const g of groups) sections.push(...splitLong(g.heading || 'Opening', g.level, g.blocks));
+  return sections.map((s, n) => ({ id: `s${String(n + 1).padStart(2, '0')}`, ...s }));
+}
+
+const BACK_MATTER = /^(references|notes|footnotes|citations|sources|bibliography|works cited|further reading|external links|see also|related articles|comments)$/i;
+
+/** Lists of references and links are left out of the walk; their headings are kept to say so. */
+export function dropBackMatter(sections: Section[]): { kept: Section[]; dropped: string[] } {
+  const kept: Section[] = [];
+  const dropped: string[] = [];
+  for (const s of sections) {
+    if (BACK_MATTER.test(s.heading.trim())) {
+      if (!dropped.includes(s.heading)) dropped.push(s.heading);
+    } else kept.push(s);
+  }
+  return { kept: kept.length ? kept : sections, dropped: kept.length ? dropped : [] };
+}
+
+export function sectionLabel(s: Pick<Section, 'heading' | 'part'>): string {
+  return s.part ? `${s.heading}, part ${s.part}` : s.heading;
+}

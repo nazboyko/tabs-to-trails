@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Field notes on quiet mornings | Example Blog</title>
+<script>document.title = 'changed by a script';</script>
+</head>
+<body>
+<nav><a href="/">Home</a> <a href="/about">About</a> <a href="/archive">Archive</a></nav>
+<article>
+<h1>Field notes on quiet mornings</h1>
+<p class="byline">By Sam Example</p>
+<p>For four weeks I kept a notebook by the door and wrote one line every morning before looking at a screen. The rule was simple: no phone until the line was written. Most days the line was about the weather, the light or the noise from the street.</p>
+<p>By the second week the notebook had become the first thing I reached for. I started to notice that the mornings I wrote anything at all were calmer than the mornings I skipped it, even when the line itself was dull.</p>
+<h2>What I counted</h2>
+<p>I counted how long it took before I first unlocked the phone. The numbers are rough, written down by hand, but the trend is clear enough to share.</p>
+<table>
+<thead><tr><th>Week</th><th>Median minutes</th><th>Days skipped</th></tr></thead>
+<tbody>
+<tr><td>1</td><td>4</td><td>3</td></tr>
+<tr><td>2</td><td>11</td><td>1</td></tr>
+<tr><td>3</td><td>18</td><td>0</td></tr>
+<tr><td>4</td><td>22</td><td>1</td></tr>
+</tbody>
+</table>
+<h2>The small script</h2>
+<p>To keep myself honest I wrote a tiny script that prints how many lines the notebook file has, so I could not pretend I had written more than I had.</p>
+<pre><code class="language-sh">wc -l notebook.txt
+</code></pre>
+<p>It is not clever, but it was enough.</p>
+<div id="inject"></div>
+<script>document.getElementById('inject').textContent = 'SCRIPT RAN';</script>
+<h2>References</h2>
+<ul><li><a href="https://example.com/a">A paper about mornings</a></li><li><a href="https://example.com/b">Another one</a></li></ul>
+</article>
+<footer>Copyright Example Blog. Subscribe to the newsletter.</footer>
+</body>
+</html>
