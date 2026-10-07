@@ -1,4 +1,5 @@
 import fs from 'node:fs/promises';
+import path from 'node:path';
 import { ModelMissing, OllamaUnreachable, PromptTooLarge } from '../ollama.js';
 import { runPipeline, type BuildRequest, type Meta, type Progress, type StageName } from '../pipeline.js';
 import { SourceError } from '../source/types.js';
@@ -40,6 +41,41 @@ export interface WalkRecord {
 }
 
 export type Listener = (status: Status, meta?: Meta) => void;
+
+const LOCK = 'run.lock';
+
+function alive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err) {
+    return (err as NodeJS.ErrnoException).code === 'EPERM';
+  }
+}
+
+/** Which live process, other than this one, is running the walk right now. */
+export async function lockedByOther(id: string): Promise<number | null> {
+  try {
+    const { pid } = JSON.parse(await fs.readFile(path.join(walkDir(id), LOCK), 'utf8')) as { pid: number };
+    return pid !== process.pid && alive(pid) ? pid : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Takes the walk for this process. The app and the terminal command can run
+ * at the same time on one walks folder; a walk is only ever worked on by one.
+ */
+async function takeLock(id: string): Promise<boolean> {
+  if (await lockedByOther(id)) return false;
+  await fs.writeFile(path.join(walkDir(id), LOCK), JSON.stringify({ pid: process.pid, at: new Date().toISOString() }));
+  return true;
+}
+
+async function dropLock(id: string): Promise<void> {
+  await fs.rm(path.join(walkDir(id), LOCK), { force: true });
+}
 
 export function freshStatus(): Status {
   return {
@@ -148,7 +184,9 @@ export class Jobs {
     for (const id of await listWalkIds()) {
       const status = await readJson<Status>(walkDir(id), 'status.json');
       const record = await readJson<WalkRecord>(walkDir(id), 'walk.json');
-      if (record && status && (status.state === 'queued' || status.state === 'running')) pending.push({ id, createdAt: record.createdAt });
+      if (!record || !status || (status.state !== 'queued' && status.state !== 'running')) continue;
+      if (await lockedByOther(id)) continue;
+      pending.push({ id, createdAt: record.createdAt });
     }
     pending.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
     for (const p of pending) this.enqueue(p.id);
@@ -179,7 +217,7 @@ export class Jobs {
     if (this.running || !this.queue.length) return;
     const id = this.queue.shift()!;
     const record = await this.record(id);
-    if (!record) return void this.next();
+    if (!record || !(await takeLock(id))) return void this.next();
     const controller = new AbortController();
     this.running = { id, controller };
     let status = (await this.status(id)) ?? freshStatus();
@@ -202,14 +240,17 @@ export class Jobs {
         controller.signal,
       );
       await writes;
+      await dropLock(id);
       const stages = Object.fromEntries(STAGES.map((s) => [s, { ...status.stages[s], state: 'done' }])) as Status['stages'];
       await this.save(id, { ...status, state: 'done', stages, updatedAt: new Date().toISOString() }, meta);
     } catch (err) {
       await writes;
+      await dropLock(id).catch(() => undefined);
       if (!controller.signal.aborted) {
         await this.save(id, { ...status, state: 'failed', error: friendlyError(err, current), updatedAt: new Date().toISOString() });
       }
     } finally {
+      await dropLock(id).catch(() => undefined);
       this.running = null;
       void this.next();
     }

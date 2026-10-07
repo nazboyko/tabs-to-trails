@@ -4,7 +4,7 @@ import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { access } from '../src/server/app.js';
 import type { Meta, runPipeline } from '../src/server/pipeline.js';
-import { applyProgress, freshStatus, Jobs, type Status } from '../src/server/walks/jobs.js';
+import { applyProgress, freshStatus, Jobs, lockedByOther, type Status } from '../src/server/walks/jobs.js';
 import { isLoopback, lanAddress, shareUrl, tokenMatches } from '../src/server/walks/share.js';
 import { readJson, walkDir, writeJson } from '../src/server/walks/store.js';
 
@@ -135,6 +135,24 @@ describe('Jobs', () => {
     expect(await jobs.resumeAll()).toEqual([id]);
     await done;
     expect(seen).toEqual([id]);
+  });
+
+  it('leaves a walk alone while another live process holds it', async () => {
+    const id = 'bbbbbbbbbbbb';
+    await fs.mkdir(walkDir(id), { recursive: true });
+    await writeJson(walkDir(id), 'walk.json', { id, token: 't'.repeat(24), createdAt: new Date().toISOString(), request: { source: { kind: 'text', text: 'x y z' }, minutes: 10, voice: 'heart' } });
+    await writeJson(walkDir(id), 'status.json', { ...freshStatus(), state: 'running' });
+    // The parent of the test runner is alive and is not this process.
+    await fs.writeFile(path.join(walkDir(id), 'run.lock'), JSON.stringify({ pid: process.ppid }));
+    expect(await lockedByOther(id)).toBe(process.ppid);
+    const jobs = new Jobs(async () => meta);
+    expect(await jobs.resumeAll()).toEqual([]);
+    await fs.writeFile(path.join(walkDir(id), 'run.lock'), JSON.stringify({ pid: 999999 }));
+    expect(await lockedByOther(id)).toBeNull();
+    const done = waitFor(jobs, id, 'done');
+    expect(await jobs.resumeAll()).toEqual([id]);
+    await done;
+    await expect(fs.access(path.join(walkDir(id), 'run.lock'))).rejects.toThrow();
   });
 
   it('cancels a queued walk and removes its folder', async () => {
