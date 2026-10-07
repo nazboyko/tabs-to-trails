@@ -1,6 +1,6 @@
 node_modules/
-dist/
-walks/
+/dist/
+/walks/
 .env
 .DS_Store
 *.log
