@@ -1,13 +1,13 @@
 {
   "title": "Walking, part one, by Henry David Thoreau",
-  "createdAt": "2026-10-07T20:57:52.299Z",
-  "finishedAt": "2026-10-07T21:00:41.600Z",
+  "createdAt": "2026-10-07T22:04:27.176Z",
+  "finishedAt": "2026-10-07T22:07:05.823Z",
   "source": {
     "kind": "file"
   },
   "mode": "condensed",
   "targetSeconds": 1200,
-  "actualSeconds": 1180.44,
+  "actualSeconds": 1178.74,
   "halfwaySeconds": 585.38,
   "fullSeconds": 1274,
   "sourceWords": 3160,
@@ -25,16 +25,16 @@
   "wordsPerMinute": 153.2,
   "model": "gemma4:e4b",
   "numCtx": 16384,
-  "modelCalls": 3,
-  "rewriteSeconds": 11,
-  "voiceSeconds": 155.3,
-  "packSeconds": 3,
+  "modelCalls": 2,
+  "rewriteSeconds": 3.7,
+  "voiceSeconds": 152,
+  "packSeconds": 2.9,
   "fileName": "walking-part-one-by-henry-david-thoreau-20min-walk.mp3",
-  "bytes": 9444339,
+  "bytes": 9430899,
   "machine": "Apple M5 Max, 64 GB",
   "fit": {
     "sectionId": "s03",
-    "beforeSeconds": 1091.1
+    "beforeSeconds": 1100.1
   },
   "leftOut": [],
   "scored": true,

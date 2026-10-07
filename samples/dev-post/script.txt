@@ -1,39 +1,34 @@
 My Six-Year-Old Can't Do Five Things at Once, So His Screen Shows One
-Walk Edition, 10:12, halfway cue at 5:05
+Walk Edition, 10:15, halfway cue at 5:11
 
 [0:00] The app: This is your 10-minute Walk Edition of My Six-Year-Old Can't Do Five Things at Once, So His Screen Shows One. Start walking. I'll tell you when you're halfway.
 
-[0:11] Opening (Full)
-This is a submission for the Hacktoberfest Weekend Challenge: Build for a Friend
-
-[0:17] What I Built (Full)
+[0:11] What I Built (Full)
 My son is six and started kindergarten a month ago. A school morning asks him for five things: eat, brush teeth, get dressed, shoes and jacket, backpack. Breakfast is easy, because breakfast is one pancake with honey and he is very consistent about that. The rest is where it falls apart. He starts getting dressed, remembers his teeth, wants to play, and a few minutes later he is doing all three at once, which means none of them.
 
 I noticed that he is fine with any single step. What he cannot hold is the list. So I built a screen for him that never shows a list.
 
 One Thing is a small app for our home network. I type the routine in plain words. A Gemma 4 model running on my laptop turns it into a short mission with a theme (I went with rockets). I read every step and fix what I don't like. Only after I approve it does it reach the kid screen on the tablet, and there it shows exactly one step at a time: one big emoji, a few words, and one button.
 
-There is a picture here: The kid screen at tablet size: a large pancake emoji, the step title "Fuel up", a timer at 9:57, and a round amber button labeled "Hold when done" with its ring partly filled.
-
 Every rule on that screen comes from something I see on our mornings:
 
-Every rule on the screen comes from morning observations. The screen shows one step, never a list. Every step is read aloud. The button must be held, not tapped. Brushing teeth uses a timer he cannot skip. Nothing ever fails. The end is always visible. I approve every mission first.
+One step on screen, never a list. Every step is read aloud. The button has to be held, not tapped. Brushing teeth is a timer he can't skip. Nothing ever fails. The end is always visible. I approve every mission first.
 
-[1:59] Demo (Full)
+[1:34] Demo (Condensed)
 Try the kid screen yourself: nazboyko.github.io/one-thing/demo. It plays the built-in sample mission in your browser. Hold the amber button; a quick tap does nothing.
 
 In the video (79 seconds) I type a routine for getting ready to go outside and give it the theme "space walk". Gemma writes the mission in 2.6 seconds. I scroll through the steps, approve it, and the kid screen plays the mission to the finale. The typing is sped up 2x and labeled. The kid screen runs at normal speed, and you can hear it say each step.
 
-Where it stands. This is the first working version, built in one evening. My son has not used it yet. I wanted it finished and checked before it goes in front of him, and I wanted the first try to be a calm one, not one squeezed in before a deadline. Everything in this post is about the idea and how it is built, not about results.
+This is the first working version. I built it in one evening. My son has not used it yet. I wanted it finished and checked before it goes in front of him.
 
-[2:57] How I Built It (Condensed)
+[2:21] How I Built It (Full)
 The open-source AI at the center is Gemma 4, Google's open-weight model (gemma4:e4b, with thinking turned off). Ollama, an open-source runtime, runs it on my laptop. Around them sits one Go binary that uses only the standard library, with a React front end compiled into it. There is no database, no account and no cloud. Saved missions are JSON files in a folder, and the only network call the app makes is to Ollama on localhost.
 
-The Go server sends JSON to Ollama running Gemma 4. The server sanitizes, validates, and retries the request once. The parent then reads, edits, and approves the mission. The tablet shows one step at a time.
+The Go server sends JSON to Ollama running Gemma 4 on the laptop. The server sanitizes, validates, and retries the JSON. The parent reads, edits, and approves the mission. The tablet then shows one step at a time.
 
 Getting a small model to return something I can trust. I don't want prose from the model. I want a mission my code can check. So the request to Ollama carries a JSON schema, and Gemma has to answer in that shape. A mission holds three to eight steps, and each step is described like this:
 
-The code defines an object structure. This structure requires emoji, title, say, mode, and seconds. The mode can be until_done or for_duration.
+The code defines an object structure. This structure requires an emoji, title, say, mode, and seconds. The mode can be until_done or for_duration.
 
 A schema guarantees the shape, not the sense. So every answer goes through two more functions. Sanitize fixes what is safe to fix: stray whitespace, Title Case in step titles, a timer outside the allowed range, an "emoji" that is not one. Validate returns plain field errors such as steps[2].title: too many words (at most 6). If any remain, the server sends them back to the model as a follow-up message and asks once more.
 
@@ -43,29 +38,33 @@ Routine: School morning for a 6-year-old: breakfast, brush teeth, get dressed, s
 
 And this is the raw answer, with only the line breaks tidied:
 
-The code shows a rocket launch preparation. It has steps for fueling up, polishing teeth, suiting up, sealing gear, and packing the rocket.
+The code shows a rocket launch preparation sequence. It includes steps like fueling up, polishing teeth, suiting up, sealing gear, and packing the rocket.
 
 I would still change one line before approving it. "Keep fueling up!" sounds like "eat more", which the prompt tells the model never to say.
 
 Numbers from my laptop (Apple M5 Max, 64 GB, Ollama 0.35, model already loaded):
 
-Numbers from my laptop are listed. Thinking off takes 2.4 seconds on average. Thinking on takes 11.3 seconds for one run. Thinking off was valid on the first try 22 of 22 runs. The 22 runs went through the server while I tuned the prompt. Thinking made Gemma several times slower and worse at this job, so it stays off.
+Thinking off averaged 2.4 seconds per mission, and it was valid on the first try for 22 of 22 runs. Thinking on took 11.3 seconds for one run and was not valid.
 
 The 22 runs went through the server while I tuned the prompt (school mornings, a bedtime, an after-school routine), and the time includes parsing and validation. The retry never fired; it is covered by tests against a fake Ollama. Thinking made Gemma several times slower and worse at this job, so it stays off.
 
 The prompt needed real fixes. The first version returned valid JSON every time, and as a parent I would still have rejected half of it. Asked for "breakfast", it invented cereal. Asked to split tooth brushing because it is the hardest part, a bedtime run kept it as one two-minute step. So the prompt now says:
 
-The prompt now requires using only named actions and things. Do not invent foods, clothes, or objects. If the parent says "breakfast", say "Eat your breakfast". If a part is hard or needs splitting, it must become two or three separate steps.
+The code ensures only named actions are used. It also forces hard parts to become two or three separate steps.
 
-Brushing has been split in every run. Two more fixes came from reading output the same way. One run said eat your breakfast until done. Another made breakfast a two-minute timed step. This would have locked the button while he eats.
+Brushing has been split in every run since. Two more fixes came from reading output the same way: one run said "eat your breakfast until done", and another made breakfast a two-minute timed step, which would have locked the button while he eats.
 
-What did not work. In 3 of 8 morning runs that I read line by line, Gemma folded shoes and jacket into just shoes. Four rounds of prompt changes fixed everything else I found, but not this. This is why the parent reads every step before approving. And why I would not let a model talk to my son directly.
+What did not work. In 3 of 8 morning runs that I read line by line, Gemma folded "shoes and jacket" into just "shoes". Four rounds of prompt changes fixed everything else I found, but not this. The screenshot shows it happening again, unedited: step 5 has no jacket. This is why the parent reads every step before approving, and why I would not let a model talk to my son directly.
 
-Small things that turned out to matter. The hold button fires after 0.8 seconds, measured from timestamps, not animation frames. Quick taps do nothing, and letting go early drains the ring. Step timers come from timestamps too. ?speed=20 in the address makes them twenty times faster.
+Small things that turned out to matter:
 
-Gemma once returned a colon as the emoji for both teeth steps. My validator let it through. Now any plain ASCII there is rejected and replaced with a star. The first voice the app picked sounded robotic. It now uses only voices installed on the device. On the parent screen I can pick another voice and test it. If I set a time to leave, the last screen says how long is left.
+The hold button fires after 0.8 seconds, measured from timestamps, not animation frames. Quick taps do nothing, and letting go early drains the ring. Step timers come from timestamps too, so a throttled tab stays correct.?speed=20 in the address makes them twenty times faster, which is how the screen got tested without brushing anyone's teeth for a minute at a time. Gemma once returned a colon as the "emoji" for both teeth steps, and my validator let it through: it only rejected letters and digits. Now any plain ASCII there is rejected and replaced with a star. The first voice the app picked sounded robotic. It now uses only voices installed on the device, never a network one: Premium first, then Enhanced, then a short list of natural voices, and never the novelty voices macOS ships. On the parent screen I can pick another voice and test it. If I set a time to leave, the last screen says how long is left: "You have 14 minutes to play before liftoff."
 
-[8:20] Why Does Open Innovation Matter? (Full)
+What I cut. A speed comparison with the smaller gemma4:e2b. It was not on the laptop, so I have no numbers for it. It was one evening, and the kid screen got the time.
+
+What is not tested yet. It has run in a browser in tablet mode on my laptop, not on a real tablet, and not with the person it is for. Speech voices differ between devices: for a natural one on a Mac or iPad, you download a Premium or Enhanced English voice in Settings > Accessibility > Spoken Content (Read & Speak on newer macOS), and the app picks it by itself. I expect the timers to need tuning once a real six-year-old is holding the button.
+
+[8:40] Why Does Open Innovation Matter? (Condensed)
 For this project it is not a nice extra. It decides whether I would use the thing at all.
 
 The input is a description of where my child struggles. "Brushing teeth is the hardest part." "He only eats one thing for breakfast." That is what I type into the box. With open weights on my own laptop, those sentences go from my keyboard to my own memory and nowhere else. I did not have to read anyone's privacy policy to decide that this was fine.
@@ -74,15 +73,10 @@ It does not need the internet. The page, the Lexend font, the model and the save
 
 It costs nothing, so I can be picky. I generated dozens of missions while tuning the prompt. There is no meter running, no key to protect, and no account to create for a tool that a six-year-old uses.
 
-Anyone can change how it thinks. The system prompt is a text file in the repository, and the model is one line of configuration. If your kid is four, or ten, or needs steps cut even smaller, you edit a paragraph of English, not a product.
+Anyone can change how it thinks. The system prompt is a text file in the repository. The model is one line of configuration. If your kid needs steps cut even smaller, you edit a paragraph of English. For a family tool, local and open is simply the right shape.
 
-I would be sending notes about my son to a third party every time. I would pay per call for something that runs a few seconds a week. For a family tool, local and open is simply the right shape.
+[5:11] The app, after a chime: You're halfway. If you're walking out and back, turn around now.
 
-[9:45] Prize Categories (Brief)
-This source covers how Gemma 4 is used to turn a parent's description into single, physical, kid-sized steps.
-
-[5:05] The app, after a chime: You're halfway. If you're walking out and back, turn around now.
-
-The app, a question for the last stretch: Here is something to think about on the way back. Given that the parent must read every step before approving, what does this suggest about the necessary level of trust in the model's output for a family tool?
+The app, a question for the last stretch: Here is something to think about on the way back. Considering the system's reliance on a parent to approve every step, what does that reveal about the necessary level of human oversight when customizing a tool for a child's specific needs?
 
 The app: That's the end. You should be almost home.

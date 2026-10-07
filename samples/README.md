@@ -4,10 +4,10 @@ Two Walk Editions made with this repository on one laptop (Apple M5 Max, 64 GB),
 
 | Sample | Source | Asked for | Measured | Halfway cue | Words in source / script | Sections | Model | Voice |
 |---|---|---|---|---|---|---|---|---|
-| [`dev-post/`](dev-post/) | The author's own DEV post | 10:00 | 10:12 | 5:05 | 1,863 / 1,535 | 4 in full, 1 condensed, 1 brief | 5.3 s | Heart, 64.2 s |
-| [`thoreau-walking/`](thoreau-walking/) | Henry David Thoreau, "Walking" (1862), part one | 20:00 | 19:40 | 9:45 | 3,160 / 3,160 | 3 in full | 11 s | George, 155.3 s |
+| [`dev-post/`](dev-post/) | The author's own DEV post | 10:00 | 10:15 | 5:11 | 1,726 / 1,531 | 2 in full, 2 condensed | 4.1 s | Heart, 63.5 s |
+| [`thoreau-walking/`](thoreau-walking/) | Henry David Thoreau, "Walking" (1862), part one | 20:00 | 19:39 | 9:45 | 3,160 / 3,160 | 3 in full | 3.7 s | George, 152 s |
 
-The DEV post was condensed to fit ten minutes. Thoreau's part one fits twenty minutes, so it is read as written.
+The DEV post was condensed to fit ten minutes; its challenge submission line and Prize Categories section are left out. Thoreau's part one fits twenty minutes, so it is read as written.
 
 ## The Thoreau text
 
