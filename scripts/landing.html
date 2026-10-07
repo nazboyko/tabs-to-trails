@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tabs to Trails: turn your reading backlog into a walk</title>
+<meta name="description" content="Paste a link, pick a walk length, get an MP3 made on your own computer with Gemma 4 and Kokoro. Then pocket the phone and go.">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<style>
+@font-face { font-family: 'Figtree'; font-weight: 400; font-display: swap; src: url(fonts/figtree-latin-400-normal.woff2) format('woff2'); }
+@font-face { font-family: 'Figtree'; font-weight: 600; font-display: swap; src: url(fonts/figtree-latin-600-normal.woff2) format('woff2'); }
+@font-face { font-family: 'Figtree'; font-weight: 700; font-display: swap; src: url(fonts/figtree-latin-700-normal.woff2) format('woff2'); }
+@font-face { font-family: 'Newsreader'; font-weight: 400; font-display: swap; src: url(fonts/newsreader-latin-400-normal.woff2) format('woff2'); }
+@font-face { font-family: 'Newsreader'; font-weight: 500; font-display: swap; src: url(fonts/newsreader-latin-500-normal.woff2) format('woff2'); }
+@font-face { font-family: 'Newsreader'; font-style: italic; font-weight: 400; font-display: swap; src: url(fonts/newsreader-latin-400-italic.woff2) format('woff2'); }
+@font-face { font-family: 'JetBrains Mono'; font-weight: 400; font-display: swap; src: url(fonts/jetbrains-mono-latin-400-normal.woff2) format('woff2'); }
+@font-face { font-family: 'JetBrains Mono'; font-weight: 500; font-display: swap; src: url(fonts/jetbrains-mono-latin-500-normal.woff2) format('woff2'); }
+:root { --paper: #F5F0E6; --card: #FFFCF5; --ink: #1E3A2B; --ink-soft: #47644F; --muted: #55655A; --rule: #DCD4C2; --orange: #BF4A0F; --orange-text: #A53F0B; --orange-soft: #FBEEE2; --forest-text: #F5F0E6; --forest-muted: #D5DCCF; color-scheme: light; }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--paper); color: var(--ink); font-family: 'Figtree', system-ui, sans-serif; font-size: 17px; line-height: 1.55; }
+a { color: var(--ink); text-underline-offset: 3px; }
+:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+.wrap { max-width: 760px; margin: 0 auto; padding: 0 20px; }
+header.top { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; padding: 20px 32px; border-bottom: 1px solid var(--rule); }
+.mark { display: flex; align-items: center; gap: 10px; font-family: 'Newsreader', Georgia, serif; font-size: 22px; font-weight: 500; text-decoration: none; }
+.top a.repo { font-size: 15px; font-weight: 600; }
+.hero { padding: 72px 0 40px; display: flex; flex-direction: column; gap: 18px; }
+h1 { margin: 0; font-family: 'Newsreader', Georgia, serif; font-weight: 400; font-size: 54px; line-height: 1.06; letter-spacing: -0.01em; }
+.lede { margin: 0; font-size: 20px; color: var(--muted); max-width: 600px; }
+.actions { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 8px; }
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 10px; min-height: 52px; padding: 0 22px; border-radius: 12px; border: 1px solid var(--ink); font-weight: 700; text-decoration: none; }
+.btn.primary { background: var(--orange); border-color: var(--orange); color: #FFFFFF; }
+.btn.primary:hover { background: #A9410C; }
+.btn:hover { background: rgba(30, 58, 43, 0.06); }
+section { padding: 40px 0; border-top: 1px solid var(--rule); }
+h2 { margin: 0 0 18px; font-family: 'Newsreader', Georgia, serif; font-weight: 400; font-size: 34px; line-height: 1.15; }
+h3 { margin: 0; font-size: 20px; }
+.steps { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; }
+.steps li { padding: 20px; background: var(--card); border: 1px solid var(--rule); border-radius: 14px; }
+.steps .n { font-family: 'JetBrains Mono', ui-monospace, monospace; color: var(--orange-text); font-weight: 500; }
+.steps p { margin: 6px 0 0; color: var(--muted); font-size: 16px; }
+.shots { display: grid; grid-template-columns: 2fr 1fr; gap: 16px; align-items: start; }
+.shots img { width: 100%; height: auto; border: 1px solid var(--rule); border-radius: 12px; background: var(--card); }
+.shots figcaption { font-size: 14px; color: var(--muted); margin-top: 6px; }
+figure { margin: 0; }
+.sample { display: flex; flex-direction: column; gap: 12px; padding: 24px; margin-bottom: 18px; background: var(--card); border: 1px solid var(--rule); border-radius: 16px; }
+.sample .meta { font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 14px; color: var(--muted); }
+.sample audio { width: 100%; }
+.small { margin: 0; font-size: 15px; color: var(--muted); }
+details summary { cursor: pointer; font-weight: 600; min-height: 44px; display: flex; align-items: center; }
+.script { max-height: 420px; overflow-y: auto; padding: 4px 16px 16px; border: 1px solid var(--rule); border-radius: 10px; background: #FFFFFF; }
+.script p { margin: 12px 0 0; }
+.script .app { padding: 10px 12px; background: var(--orange-soft); border-radius: 8px; }
+.script .t { display: block; font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 13px; color: var(--orange-text); font-weight: 500; }
+.local { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; }
+.local div { padding: 18px 20px; border: 1px solid var(--rule); border-radius: 14px; }
+.local strong { display: block; }
+.walking { background: #1E3A2B; color: var(--forest-text); border-radius: 18px; padding: 32px; margin: 8px 0 0; }
+.walking .big { font-family: 'Newsreader', Georgia, serif; font-style: italic; font-size: 44px; line-height: 1.1; }
+.walking p { color: var(--forest-muted); margin: 10px 0 0; }
+.walking a { color: var(--forest-text); }
+.walking :focus-visible { outline-color: var(--forest-text); }
+footer { padding: 32px 0 56px; border-top: 1px solid var(--rule); font-size: 15px; color: var(--muted); }
+code { font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 15px; }
+@media (max-width: 600px) { h1 { font-size: 40px; } .shots { grid-template-columns: 1fr; } header.top { padding: 16px 20px; } }
+</style>
+</head>
+<body>
+<header class="top">
+  <a class="mark" href="./"><svg width="28" height="28" viewBox="0 0 28 28" fill="none" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 21V9a3 3 0 0 1 3-3h6a3 3 0 0 1 3 3v2" stroke="#1E3A2B" stroke-width="1.8"/><path d="M15 11c5 0 2 10 10 10" stroke="#BF4A0F" stroke-width="1.8" stroke-dasharray="1.5 3.5"/></svg>Tabs to Trails</a>
+  <a class="repo" href="{{repo}}">Code on GitHub</a>
+</header>
+<main class="wrap">
+  <div class="hero">
+    <h1>Turn your reading backlog into a walk.</h1>
+    <p class="lede">Paste the article you keep meaning to read and say how long your walk is. Your own computer turns it into an MP3 of that length, with Gemma 4 and the Kokoro voice running locally. Scan the code, pocket the phone, go.</p>
+    <div class="actions">
+      <a class="btn primary" href="#samples">Hear two samples</a>
+      <a class="btn" href="{{repo}}">Get it on GitHub</a>
+    </div>
+  </div>
+
+  <!-- VIDEO: the demo video goes here as a figure with its caption. -->
+
+  <section aria-labelledby="how">
+    <h2 id="how">About a minute at the screen</h2>
+    <ol class="steps">
+      <li><span class="n">1</span><h3>Paste</h3><p>A link, some text or a .md file. Something you already meant to read.</p></li>
+      <li><span class="n">2</span><h3>Pick a length</h3><p>10, 20 or 30 minutes, or the whole thing. The plan uses the voice's measured pace.</p></li>
+      <li><span class="n">3</span><h3>Pocket it</h3><p>Scan the QR code, download the MP3, press play. A chime and a cue tell you when you're halfway.</p></li>
+    </ol>
+  </section>
+
+  <section aria-labelledby="screens">
+    <h2 id="screens">What it looks like</h2>
+    <div class="shots">
+      <figure><img src="screenshots/ready.png" width="1280" height="1153" alt="The Ready screen: the walk's measured length in large numbers, a QR code for the phone, and Download MP3 and Read the script buttons."><figcaption>Ready to walk: the measured length, the QR code and the download.</figcaption></figure>
+      <figure><img src="screenshots/phone-playing.png" width="390" height="844" alt="The phone's playing screen, dark green: Pocket your phone, a progress line with the halfway mark, and back, pause and forward buttons."><figcaption>The only dark screen: on the phone, while you walk.</figcaption></figure>
+    </div>
+  </section>
+
+  <section id="samples" aria-labelledby="samples-title">
+    <h2 id="samples-title">Hear two Walk Editions</h2>
+    <p class="small" style="margin-bottom:18px">Both were made with this repository on one laptop. The scripts are exactly what the voice says, with times.</p>
+{{samples}}
+  </section>
+
+  <section aria-labelledby="local">
+    <h2 id="local">Everything runs on your computer</h2>
+    <div class="local">
+      <div><strong>Gemma 4 through Ollama</strong>Rewrites for the ear, describes code and tables, writes the closing question. A number guard checks every number against the source.</div>
+      <div><strong>Kokoro-82M</strong>Reads the script on the CPU. The app measures the audio and shows the real length.</div>
+      <div><strong>No account, no cloud</strong>The server fetches the one link you typed. Pasted text works with the internet off.</div>
+    </div>
+    <div class="walking">
+      <div class="big">Pocket your phone.</div>
+      <p>The MP3 holds the whole walk. No app, no GPS, no connection needed once it's on the phone. <a href="{{repo}}#quick-start">Quick start on GitHub</a>.</p>
+    </div>
+  </section>
+</main>
+<footer>
+  <div class="wrap">
+    <p>Tabs to Trails, MIT license. Built for the DEV Hacktoberfest Open-Source AI Challenge 2026, Week 1 "Touch Grass". Credits for Gemma, Kokoro, the libraries and the fonts are in the <a href="{{repo}}#credits">README</a>. The Thoreau sample reads a public-domain text.</p>
+  </div>
+</footer>
+</body>
+</html>
