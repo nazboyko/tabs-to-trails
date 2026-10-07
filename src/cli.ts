@@ -4,6 +4,7 @@ import { loadConfig, VOICE_KEYS, type VoiceKey } from './server/config.js';
 import { clock } from './server/audio/timeline.js';
 import type { BuildRequest, Meta } from './server/pipeline.js';
 import type { SourceInput } from './server/source/index.js';
+import { disposeVoiceModel } from './server/audio/kokoro.js';
 import { Jobs } from './server/walks/jobs.js';
 import { walkDir } from './server/walks/store.js';
 
@@ -62,10 +63,11 @@ async function main() {
   console.log(`  ${meta.sourceWords} source words -> ${meta.scriptWords} script words, ${meta.mode} mode`);
   console.log(`  rewrite ${meta.rewriteSeconds}s, voice ${meta.voiceSeconds}s, total ${Math.round((Date.now() - started) / 1000)}s`);
   console.log(`  ${rel}/final.mp3  ${rel}/script.txt`);
-  process.exit(0);
+  await disposeVoiceModel();
 }
 
-main().catch((err: unknown) => {
+main().catch(async (err: unknown) => {
   console.error(err instanceof Error ? err.message : err);
+  await disposeVoiceModel();
   process.exit(1);
 });

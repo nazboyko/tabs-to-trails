@@ -10,9 +10,9 @@ export function askWords(target: number): number {
   return Math.round(target >= 400 ? target * ASK_FACTOR : target);
 }
 /** A rewrite longer than its budget by this factor gets one shortening pass. */
-export const LENGTH_TOLERANCE = 1.15;
+export const LENGTH_TOLERANCE = 1.1;
 /** A rewrite shorter than this share of its budget gets one lengthening pass. */
-export const SHORT_TOLERANCE = 0.65;
+export const SHORT_TOLERANCE = 0.8;
 
 export interface ScriptSection {
   id: string;

@@ -14,7 +14,8 @@
     "start": "node dist/server/app.js --open",
     "walk": "tsx src/cli.ts",
     "test": "vitest",
-    "check": "tsc --noEmit && tsc --noEmit -p tsconfig.web.json && vitest run && vite build"
+    "check": "tsc --noEmit && tsc --noEmit -p tsconfig.web.json && vitest run && vite build",
+    "docs": "tsx scripts/build-docs.ts"
   },
   "dependencies": {
     "@fontsource/figtree": "^5.3.0",
@@ -47,5 +48,10 @@
     "typescript": "^7.0.2",
     "vite": "^8.3.3",
     "vitest": "^5.0.3"
+  },
+  "allowScripts": {
+    "ffmpeg-static@5.3.0": true,
+    "onnxruntime-node@1.21.0": true,
+    "esbuild@0.28.2": true
   }
 }

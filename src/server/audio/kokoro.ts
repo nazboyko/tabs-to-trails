@@ -71,6 +71,14 @@ export function loadVoiceModel(): Promise<KokoroTTS> {
   return loading;
 }
 
+/** Frees the ONNX session so a short-lived process (the terminal command) can exit cleanly. */
+export async function disposeVoiceModel(): Promise<void> {
+  if (!loading) return;
+  const tts = await loading.catch(() => null);
+  loading = null;
+  await tts?.model.dispose().catch(() => undefined);
+}
+
 export function voiceModelLoaded(): boolean {
   return loading !== null;
 }
