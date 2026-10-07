@@ -44,7 +44,7 @@ export function lengthenNote(had: number, want: number): string {
 
 export function shortenSystem(words: number): string {
   return `You shorten spoken text for a walk. Keep its facts, names, numbers, warnings and voice.
-Do not add anything. No markdown, no lists, no headings.
+Do not add anything. No markdown, no lists, no headings. Never say that there is a table or a list, or that things are listed, shown or included.
 Target length: ${words} words. Output only the shortened text.`;
 }
 
