@@ -2,7 +2,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { loadConfig, type VoiceKey } from './config.js';
-import { calibration, effectiveWpm, learnPace, spokenChars } from './audio/calibrate.js';
+import { calibration, effectiveWpm, spokenChars } from './audio/calibrate.js';
 import { encodeMp3, makeChime } from './audio/assemble.js';
 import { decideFit, type FitDecision } from './audio/fit.js';
 import { DTYPE, VOICES, voiceText } from './audio/kokoro.js';
@@ -122,6 +122,10 @@ async function stageRead(dir: string, req: BuildRequest, signal?: AbortSignal) {
   const doc = await readSource(req.source, signal);
   const { kept, dropped } = dropBackMatter(splitSections(doc.markdown));
   sections = kept.map((s, i) => ({ ...s, id: `s${String(i + 1).padStart(2, '0')}` }));
+  // A text with no headings at all is not an "Opening": one section carries the title, parts are numbered.
+  if (sections.every((s) => s.heading === 'Opening')) {
+    sections = sections.length === 1 ? [{ ...sections[0]!, heading: doc.title }] : sections.map((s) => ({ ...s, heading: '' }));
+  }
   const words = sections.reduce((n, s) => n + s.words, 0);
   info = { kind: doc.kind, title: doc.title, url: doc.url, byline: doc.byline, words, sections: sections.length, leftOut: dropped };
   await writeFileAtomic(path.join(dir, 'source.md'), doc.markdown);
@@ -331,7 +335,13 @@ async function stageFit(
     const decision = decideFit(
       plan.targetSeconds,
       beforeSeconds,
-      script.sections.map((s) => ({ id: s.id, treatment: s.treatment, words: s.words, seconds: (voice.sections[s.id]?.samples ?? 0) / SAMPLE_RATE })),
+      script.sections.map((s, i) => ({
+        id: s.id,
+        treatment: s.treatment,
+        words: s.words,
+        fullWords: plan.sections[i]?.fullWords ?? s.words,
+        seconds: (voice.sections[s.id]?.samples ?? 0) / SAMPLE_RATE,
+      })),
     );
     fit = { decision, beforeSeconds: Math.round(beforeSeconds * 10) / 10, done: decision === null };
     await writeJson(dir, 'fit.json', fit);
@@ -340,7 +350,8 @@ async function stageFit(
   const decision = fit.decision!;
   const i = script.sections.findIndex((s) => s.id === decision.sectionId);
   const old = script.sections[i]!;
-  onProgress({ stage: 'voice', state: 'active', done: script.sections.length, total: script.sections.length, detail: `Shortening ${sectionLabel(old)} to fit the walk` });
+  const verb = decision.toWords < decision.fromWords ? 'Shortening' : 'Lengthening';
+  onProgress({ stage: 'voice', state: 'active', done: script.sections.length, total: script.sections.length, detail: `${verb} ${sectionLabel(old)} to fit the walk` });
   const redone = await rewriteSection(sections[i]!, { ...plan.sections[i]!, treatment: 'condensed', targetWords: decision.toWords }, { title: info.title, signal });
   fit = { ...fit, done: true, section: { ...redone, modelSeconds: old.modelSeconds + redone.modelSeconds, modelCalls: old.modelCalls + redone.modelCalls } };
   await writeJson(dir, 'fit.json', fit);
@@ -471,7 +482,8 @@ async function stagePack(
   await writeFileAtomic(path.join(dir, 'script.txt'), scriptText);
 
   const cfg = loadConfig();
-  const fileMinutes = req.minutes ?? minutes;
+  // The file name says how long the walk is: the target when it was condensed to fit, else the measured length.
+  const fileMinutes = plan.mode === 'condensed' && req.minutes ? req.minutes : Math.max(1, Math.round(actualSeconds / 60));
   const meta: Meta = {
     id,
     title: info.title,
@@ -511,12 +523,6 @@ async function stagePack(
     question: script.question !== null,
   };
   await writeJson(dir, 'meta.json', meta);
-
-  const cal = await calibration(req.voice);
-  const spoken = script.sections.reduce((n, s) => n + s.text.split(/\n\s*\n/).reduce((m, p) => m + spokenChars(p), 0), 0);
-  const estimated = (spoken / cal.charsPerSecond) * cal.paceFactor;
-  const measured = pieces.reduce((n, p) => n + p.length, 0) / SAMPLE_RATE;
-  await learnPace(req.voice, measured, estimated);
 
   onProgress({ stage: 'pack', state: 'done' });
   return meta;

@@ -32,9 +32,6 @@ export interface Calibration {
   wordsPerMinute: number;
   /** Characters of spoken text per second, pauses included. */
   charsPerSecond: number;
-  /** Measured / estimated content time of finished walks, smoothed. */
-  paceFactor: number;
-  walks: number;
   measuredAt: string;
 }
 
@@ -45,14 +42,7 @@ export function spokenChars(text: string): number {
 
 /** Words per minute for a source with this many characters per word. */
 export function effectiveWpm(cal: Calibration, charsPerWord: number): number {
-  return Math.round(((cal.charsPerSecond * 60) / charsPerWord / cal.paceFactor) * 10) / 10;
-}
-
-export function nextPaceFactor(current: number, measuredSeconds: number, estimatedSeconds: number): number {
-  if (estimatedSeconds <= 0 || measuredSeconds <= 0) return current;
-  const target = current * (measuredSeconds / estimatedSeconds);
-  const next = current + 0.5 * (target - current);
-  return Math.round(Math.min(1.25, Math.max(0.8, next)) * 1000) / 1000;
+  return Math.round(((cal.charsPerSecond * 60) / charsPerWord) * 10) / 10;
 }
 
 function calibrationFile(): string {
@@ -102,22 +92,8 @@ export async function calibration(voice: VoiceKey): Promise<Calibration> {
     seconds: Math.round(secs * 100) / 100,
     wordsPerMinute: Math.round((words / secs) * 60 * 10) / 10,
     charsPerSecond: Math.round((chars / secs) * 1000) / 1000,
-    paceFactor: 1,
-    walks: 0,
     measuredAt: new Date().toISOString(),
   };
   await save(key, result);
   return result;
-}
-
-/** Folds a finished walk's measured content time into the voice's pace factor. */
-export async function learnPace(voice: VoiceKey, measuredSeconds: number, estimatedSeconds: number): Promise<void> {
-  const key = keyFor(voice);
-  const known = (await readAll())[key];
-  if (!known) return;
-  await save(key, {
-    ...known,
-    paceFactor: nextPaceFactor(known.paceFactor, measuredSeconds, estimatedSeconds),
-    walks: known.walks + 1,
-  });
 }
