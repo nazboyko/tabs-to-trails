@@ -1,0 +1,41 @@
+{
+  "title": "My Six-Year-Old Can't Do Five Things at Once, So His Screen Shows One",
+  "createdAt": "2026-10-07T20:56:39.352Z",
+  "finishedAt": "2026-10-07T20:57:51.484Z",
+  "source": {
+    "kind": "devto",
+    "url": "https://dev.to/nazar-boyko/my-six-year-old-cant-do-five-things-at-once-so-his-screen-shows-one-o1m",
+    "byline": "Nazar Boyko"
+  },
+  "mode": "condensed",
+  "targetSeconds": 600,
+  "actualSeconds": 612.02,
+  "halfwaySeconds": 304.77,
+  "fullSeconds": 713,
+  "sourceWords": 1863,
+  "scriptWords": 1535,
+  "sections": 6,
+  "coverage": {
+    "full": 4,
+    "condensed": 1,
+    "brief": 1
+  },
+  "checkNumbers": 0,
+  "voice": "af_heart",
+  "voiceName": "Heart",
+  "dtype": "fp32",
+  "wordsPerMinute": 165.9,
+  "model": "gemma4:e4b",
+  "numCtx": 16384,
+  "modelCalls": 9,
+  "rewriteSeconds": 5.3,
+  "voiceSeconds": 64.2,
+  "packSeconds": 2.2,
+  "fileName": "my-six-year-old-cant-do-five-things-at-once-so-his-screen-10min-walk.mp3",
+  "bytes": 4897039,
+  "machine": "Apple M5 Max, 64 GB",
+  "fit": null,
+  "leftOut": [],
+  "scored": true,
+  "question": true
+}
