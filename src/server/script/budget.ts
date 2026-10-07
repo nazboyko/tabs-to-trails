@@ -23,7 +23,7 @@ export interface PlanSection {
   id: string;
   heading: string;
   part?: number;
-  /** Words read as written: prose, quotes, short lists, image descriptions. */
+  /** Words read as written: prose, quotes, short lists, alt text that states a fact. */
   sourceWords: number;
   /** sourceWords plus the expected length of described code, tables and long lists. */
   fullWords: number;
@@ -59,7 +59,6 @@ export function adaptedKind(block: Block): AdaptedKind | null {
 export function fullBlockWords(block: Block): number {
   const kind = adaptedKind(block);
   if (kind) return ADAPTED_ESTIMATE[kind];
-  if (block.kind === 'image') return blockWords(block) + 5;
   return blockWords(block);
 }
 

@@ -7,7 +7,9 @@ If SOURCE is uncertain, stay uncertain.
 Write for the ear: short sentences, no markdown, no lists, no headings,
 no "as you can see". Never read code or table cells literally.
 For code: say what it does, using only what the code and nearby text show.
-For tables: give the takeaway and the 2-4 comparisons that matter, with their numbers.`;
+For tables: say what the table tells. Start with the main finding, then the 2-4 comparisons that matter, with their numbers.
+For lists: say what the items have in common, then name the ones that matter.
+Never announce: do not say that there is a table or a list, or that things are listed, shown or included.`;
 
 export function condenseSystem(words: number): string {
   return `${RULES}
@@ -22,11 +24,18 @@ Target length: ${words} words. Output only the spoken text.`;
 }
 
 export function describeSystem(kind: 'code' | 'table', words: number): string {
-  const what = kind === 'code' ? 'Describe what the code in BLOCK does.' : 'Tell the listener what the table in BLOCK shows.';
+  const what =
+    kind === 'code'
+      ? 'Describe what the code in BLOCK does.'
+      : 'Say what the table in BLOCK tells: its main finding first, then the comparisons that matter, with their numbers. Do not mention the table itself.';
   return `${RULES}
 ${what} Your words replace BLOCK and are read between the paragraphs around it,
 so do not repeat CONTEXT and do not start with "This section".
 Target length: ${words} words. Output only the spoken text.`;
+}
+
+export function tellNote(sentences: string[]): string {
+  return `\n\nYour previous version announced instead of telling ("${sentences[0]}"). Start with what the numbers or items say. Do not mention a table or a list, and do not say that anything is listed, shown or included.`;
 }
 
 export function lengthenNote(had: number, want: number): string {
@@ -76,7 +85,7 @@ export function blockToMarkdown(b: Block, full = false): string {
     case 'quote':
       return `> ${b.text}`;
     case 'image':
-      return `[Image: ${b.text}]`;
+      return b.text;
     default:
       return b.text;
   }

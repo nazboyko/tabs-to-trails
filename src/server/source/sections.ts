@@ -160,10 +160,21 @@ function startsBlock(line: string, next: string | undefined): boolean {
   );
 }
 
-function meaningfulAlt(alt: string): string | null {
+/** Alt text that describes what a screen or photo looks like adds nothing a listener can use. */
+const LOOKS = /\b(screen|screenshot|photo|photograph|picture|image|logo|icon|avatar|banner|cover|gif|emoji|button|illustration|drawing|meme)\b/i;
+/** A chart, graph or diagram can carry data the text does not repeat. */
+const DATA = /\b(chart|graph|diagram|plot|map|figure|timeline|histogram)\b/i;
+
+/**
+ * The alt text of an image is kept only when it states a fact: a chart,
+ * graph, diagram, map or figure described with at least one number. Formula
+ * markup (LaTeX), file names and descriptions of screens are dropped.
+ */
+export function factualAlt(alt: string): string | null {
+  if (/[\\{}]/.test(alt)) return null;
   const text = plainText(alt);
-  if (countWords(text) < 4) return null;
-  if (/\.(png|jpe?g|gif|webp|svg)$/i.test(text)) return null;
+  if (countWords(text) < 4 || /\.(png|jpe?g|gif|webp|svg)$/i.test(text)) return null;
+  if (LOOKS.test(text) || !DATA.test(text) || !/\d/.test(text)) return null;
   return text;
 }
 
@@ -206,7 +217,7 @@ export function parseBlocks(markdown: string): Raw[] {
     }
     const image = line.match(IMAGE_ONLY);
     if (image) {
-      const alt = meaningfulAlt(image[1]!);
+      const alt = factualAlt(image[1]!);
       if (alt) out.push({ kind: 'image', text: alt });
       i++;
       continue;

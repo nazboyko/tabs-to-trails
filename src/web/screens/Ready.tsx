@@ -204,7 +204,7 @@ export function Ready({ detail: d, arrived = false }: { detail: ReadyDetail; arr
         <p className="facts">
           {words(d.meta.sourceWords)} words in the source, {words(d.meta.scriptWords)} in the script. Rewritten by {d.meta.model} in{' '}
           {Math.round(d.meta.rewriteSeconds)} s and read by {d.meta.voiceName} (Kokoro) in {Math.round(d.meta.voiceSeconds)} s, on this computer.
-          {d.leftOut.length > 0 && ` Left out as lists of links: ${d.leftOut.join(', ')}.`}
+          {d.leftOut.length > 0 && ` Left out: ${d.leftOut.join(', ')}.`}
         </p>
       </details>
 

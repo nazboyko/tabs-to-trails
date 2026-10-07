@@ -127,7 +127,15 @@ async function stageRead(dir: string, req: BuildRequest, signal?: AbortSignal) {
     sections = sections.length === 1 ? [{ ...sections[0]!, heading: doc.title }] : sections.map((s) => ({ ...s, heading: '' }));
   }
   const words = sections.reduce((n, s) => n + s.words, 0);
-  info = { kind: doc.kind, title: doc.title, url: doc.url, byline: doc.byline, words, sections: sections.length, leftOut: dropped };
+  info = {
+    kind: doc.kind,
+    title: doc.title,
+    url: doc.url,
+    byline: doc.byline,
+    words,
+    sections: sections.length,
+    leftOut: [...(doc.leftOut ?? []), ...dropped],
+  };
   await writeFileAtomic(path.join(dir, 'source.md'), doc.markdown);
   await writeJson(dir, 'sections.json', sections);
   await writeJson(dir, 'source.json', info);

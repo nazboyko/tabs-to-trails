@@ -6,6 +6,8 @@ export interface SourceDoc {
   markdown: string;
   url?: string;
   byline?: string;
+  /** Parts the adapter removed on purpose, named on the Ready screen. */
+  leftOut?: string[];
 }
 
 /** A calm message the user can act on; shown as is. */

@@ -2,7 +2,8 @@ import { chat, PromptTooLarge, type ChatReply } from '../ollama.js';
 import { countWords, sectionLabel, splitSentences, type Block, type Section } from '../source/sections.js';
 import { adaptedKind, ADAPTED_ESTIMATE, coverageFor, fullBlockWords, type AdaptedKind, type Coverage, type PlanSection, type Treatment } from './budget.js';
 import { newNumbers } from './guard.js';
-import { blockToMarkdown, condenseSystem, describeSystem, lengthenNote, mentionSystem, retryNote, sectionSource, shortenSystem } from './prompts.js';
+import { blockToMarkdown, condenseSystem, describeSystem, lengthenNote, mentionSystem, retryNote, sectionSource, shortenSystem, tellNote } from './prompts.js';
+import { dropAnnouncements, dropRepeats, emptyAnnouncements } from './tell.js';
 
 /** The model overshoots long word targets, so it is asked for a little less on those. */
 export const ASK_FACTOR = 0.85;
@@ -88,7 +89,8 @@ export function readAsWritten(block: Block): string {
     case 'list':
       return listAsSentences(block.items ?? [block.text]);
     case 'image':
-      return `There is a picture here: ${endSentence(block.text)}`;
+      // Only alt text that states a fact gets this far; it is read as a sentence of its own.
+      return endSentence(soften(block.text));
     default:
       return '';
   }
@@ -104,6 +106,14 @@ interface Ask {
   limit?: number;
   /** Words of the source, so a short rewrite is lengthened only when there is more to keep. */
   sourceWords?: number;
+  /**
+   * Tables and lists: a rewrite that announces ("are listed") is asked once more.
+   * For a table description ('drop'), announcing sentences without a number
+   * are then removed.
+   */
+  tell?: 'retry' | 'drop';
+  /** The paragraphs around a described block; description sentences that repeat them are removed. */
+  context?: string;
 }
 
 interface Guarded {
@@ -143,6 +153,19 @@ async function askGuarded(ask: Ask, chatFn: ChatFn, signal?: AbortSignal): Promi
       missing = retryMissing;
     }
   }
+  if (ask.tell && emptyAnnouncements(text).length) {
+    const told = await chatFn({ system: ask.system + (missing.length ? retryNote(missing) : '') + tellNote(emptyAnnouncements(text)), user: ask.user, maxTokens, signal });
+    seconds += told.seconds;
+    calls++;
+    const toldText = toSpokenText(told.text);
+    const toldMissing = newNumbers(ask.source, toldText);
+    if (countWords(toldText) >= 3 && toldMissing.every((n) => missing.includes(n)) && emptyAnnouncements(toldText).length < emptyAnnouncements(text).length) {
+      text = toldText;
+      missing = toldMissing;
+    }
+  }
+  if (ask.tell === 'drop') text = dropAnnouncements(text);
+  if (ask.context) text = dropRepeats(text, ask.context);
   const limit = ask.limit ?? 0;
   const got = countWords(text);
   if (limit >= 40 && got < limit * SHORT_TOLERANCE && (ask.sourceWords ?? 0) > got * 1.3) {
@@ -270,6 +293,8 @@ export async function rewriteSection(section: Section, plan: PlanSection, opts: 
             user: `TITLE: ${opts.title}\nSECTION: ${label}\n\nCONTEXT BEFORE:\n${before}\n\nBLOCK:\n${blockMd}\n\nCONTEXT AFTER:\n${after}`,
             source: [opts.title, label, before, blockToMarkdown(block, true), after].join('\n'),
             words,
+            tell: kind === 'table' ? 'drop' : undefined,
+            context: `${before}\n${after}`,
           },
           chatFn,
           opts.signal,
@@ -323,6 +348,7 @@ export async function rewriteSection(section: Section, plan: PlanSection, opts: 
         words,
         limit: plan.treatment === 'mention' ? undefined : plan.targetWords,
         sourceWords: plan.fullWords,
+        tell: section.blocks.some((b) => b.kind === 'table' || b.kind === 'list') ? 'retry' : undefined,
       },
       chatFn,
       opts.signal,
