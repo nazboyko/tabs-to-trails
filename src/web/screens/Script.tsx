@@ -81,19 +81,33 @@ function scriptAsText(d: ReadyDetail, items: Item[]): string {
 
 export function Script({ id }: { id: string }) {
   const [detail, setDetail] = useState<WalkDetail | null>(null);
+  const [failed, setFailed] = useState(false);
   const [copied, setCopied] = useState(false);
   const timer = useRef<number | undefined>(undefined);
 
   useEffect(() => {
-    api.walk(id).then(setDetail, () => setDetail(null));
+    api.walk(id).then(setDetail, () => setFailed(true));
     return () => window.clearTimeout(timer.current);
   }, [id]);
 
   useEffect(() => {
     if (!detail?.ready || !location.hash) return;
-    document.getElementById(location.hash.slice(1))?.scrollIntoView({ block: 'start' });
+    const target = document.getElementById(location.hash.slice(1));
+    target?.scrollIntoView({ block: 'start' });
+    // "Check it" lands on the flagged section, so the next Tab continues from there.
+    target?.querySelector<HTMLElement>('summary')?.focus();
   }, [detail]);
 
+  if (failed) {
+    return (
+      <div className="page">
+        <h1>The script could not be opened.</h1>
+        <p className="lede">
+          The app on this computer did not answer, or this walk no longer exists. <a href="/">Back to the start</a>.
+        </p>
+      </div>
+    );
+  }
   if (!detail) return <div className="page" aria-busy="true" />;
   if (!detail.ready) {
     return (

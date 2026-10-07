@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { api, watchBuild, type StageName, type StageStatus, type Status, type WalkDetail } from '../api';
+import { api, ApiError, watchBuild, type StageName, type StageStatus, type Status, type WalkDetail } from '../api';
 import { ScreenTitle } from '../common';
 import { Check, Notice } from '../icons';
 import { navigate } from '../router';
@@ -31,13 +31,14 @@ function announcement(status: Status | null): string {
   return active ? `${NAMES[active].active}.` : '';
 }
 
-export function Progress({ detail, onDone }: { detail: NotReady; onDone: () => void }) {
+export function Progress({ detail, onDone, onGone }: { detail: NotReady; onDone: () => void; onGone: () => void }) {
   const [status, setStatus] = useState<Status | null>(detail.status);
   const [title, setTitle] = useState(detail.title);
   const [lost, setLost] = useState(false);
   const [busy, setBusy] = useState(false);
   const [spoken, setSpoken] = useState('');
   const [attempt, setAttempt] = useState(0);
+  const [retryError, setRetryError] = useState<string | null>(null);
   const lastStage = useRef('');
 
   useEffect(() => {
@@ -48,12 +49,28 @@ export function Progress({ detail, onDone }: { detail: NotReady; onDone: () => v
         detail.id,
         (s) => {
           setLost(false);
+          if (s.state === 'cancelled') {
+            navigate('/', true);
+            return;
+          }
           setStatus(s);
           if (s.state === 'done') onDone();
         },
         () => {
-          setLost(true);
-          retry = window.setTimeout(connect, 2000);
+          // Gone for good (cancelled in another tab), or the app is restarting.
+          api.walk(detail.id).then(
+            () => {
+              setLost(true);
+              retry = window.setTimeout(connect, 2000);
+            },
+            (err: unknown) => {
+              if (err instanceof ApiError && err.status === 404) onGone();
+              else {
+                setLost(true);
+                retry = window.setTimeout(connect, 2000);
+              }
+            },
+          );
         },
       );
     };
@@ -62,7 +79,7 @@ export function Progress({ detail, onDone }: { detail: NotReady; onDone: () => v
       stop();
       window.clearTimeout(retry);
     };
-  }, [detail.id, onDone, attempt]);
+  }, [detail.id, onDone, onGone, attempt]);
 
   useEffect(() => {
     if (!title && status && status.stages.read.state === 'done') {
@@ -92,10 +109,13 @@ export function Progress({ detail, onDone }: { detail: NotReady; onDone: () => v
 
   const retry = async () => {
     setBusy(true);
+    setRetryError(null);
     try {
       await api.retry(detail.id);
       setStatus((s) => (s ? { ...s, state: 'queued', error: undefined } : s));
       setAttempt((n) => n + 1);
+    } catch (err) {
+      setRetryError(err instanceof Error ? err.message : 'That did not start. Try again in a moment.');
     } finally {
       setBusy(false);
     }
@@ -191,6 +211,7 @@ export function Progress({ detail, onDone }: { detail: NotReady; onDone: () => v
               Start over
             </button>
           </div>
+          {retryError && <div style={{ fontSize: 14 }}>{retryError}</div>}
         </div>
       ) : (
         <div className="card lace">

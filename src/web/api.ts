@@ -10,7 +10,7 @@ export interface StageStatus {
 }
 
 export interface Status {
-  state: 'queued' | 'running' | 'done' | 'failed';
+  state: 'queued' | 'running' | 'done' | 'failed' | 'cancelled';
   stages: Record<StageName, StageStatus>;
   error?: { message: string; stage: StageName; audioOnly: boolean; suggestPaste: boolean };
 }
@@ -167,7 +167,7 @@ export function watchBuild(id: string, onStatus: (status: Status) => void, onLos
   let finished = false;
   source.addEventListener('status', (e) => {
     const { status } = JSON.parse((e as MessageEvent<string>).data) as { status: Status };
-    if (status.state === 'done' || status.state === 'failed') {
+    if (status.state === 'done' || status.state === 'failed' || status.state === 'cancelled') {
       finished = true;
       source.close();
     }

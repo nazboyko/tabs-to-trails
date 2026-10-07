@@ -77,6 +77,7 @@ export function Build() {
   const urlInput = useRef<HTMLInputElement>(null);
   const textInput = useRef<HTMLTextAreaElement>(null);
   const submitRef = useRef<HTMLButtonElement>(null);
+  const chooseRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     api.health().then(setHealth, () => setHealth({ ready: false, ollama: 'unreachable', model: 'gemma4:e4b', voice: 'download', ffmpeg: true }));
@@ -94,8 +95,11 @@ export function Build() {
   }, [health]);
 
   useEffect(() => {
-    if (params.get('url') && health?.ready) submitRef.current?.focus();
-    // Only on arrival from the bookmarklet.
+    if (!params.get('url') || !health?.ready) return;
+    // Back from a link that could not be read: the field and its error come first.
+    // Arriving from the bookmarklet: the link is filled in, so the button is next.
+    if (linkError) urlInput.current?.focus();
+    else submitRef.current?.focus();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [health?.ready]);
 
@@ -181,7 +185,7 @@ export function Build() {
     const payload = source();
     if (typeof payload === 'string') {
       setFormError(payload);
-      (tab === 'link' ? urlInput : tab === 'text' ? textInput : fileInput).current?.focus();
+      (tab === 'link' ? urlInput : tab === 'text' ? textInput : chooseRef).current?.focus();
       return;
     }
     setBusy(true);
@@ -345,7 +349,7 @@ export function Build() {
                   e.target.value = '';
                 }}
               />
-              <button type="button" className="btn" style={{ minHeight: 44, fontSize: 15 }} onClick={() => fileInput.current?.click()}>
+              <button ref={chooseRef} type="button" className="btn" style={{ minHeight: 44, fontSize: 15 }} onClick={() => fileInput.current?.click()}>
                 {file ? 'Choose another file' : 'Choose a file'}
               </button>
               {fileError ? (

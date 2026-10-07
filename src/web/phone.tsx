@@ -148,6 +148,10 @@ function Phone() {
     loader.current = controller;
     try {
       const res = await fetch(`${base}/audio?${query}`, { signal: controller.signal });
+      if (res.status === 404) {
+        setError('This walk is no longer on the computer. Make it again there and scan the new code.');
+        return;
+      }
       if (!res.ok || !res.body) throw new Error('download failed');
       const size = Number(res.headers.get('content-length')) || info?.bytes || 0;
       setTotal(size);
@@ -248,9 +252,15 @@ function Phone() {
               <div className="knob" style={{ left: `${pct}%` }} />
             </div>
             <div className="times">
-              <span aria-label={`Played ${clock(now)}`}>{clock(now)}</span>
+              <span>
+                <span className="visually-hidden">Played </span>
+                {clock(now)}
+              </span>
               {info.halfwaySeconds !== null && <span className="h">halfway {clock(info.halfwaySeconds)}</span>}
-              <span aria-label={`Total ${clock(length)}`}>{clock(length)}</span>
+              <span>
+                <span className="visually-hidden">Total </span>
+                {clock(length)}
+              </span>
             </div>
           </div>
           <div className="controls">

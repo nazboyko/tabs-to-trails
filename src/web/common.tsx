@@ -15,13 +15,25 @@ export function Header() {
 }
 
 /** A screen's h1: takes focus when the user arrives from another screen, and sets the tab title. */
-export function ScreenTitle({ children, title, className }: { children: React.ReactNode; title: string; className?: string }) {
+export function ScreenTitle({
+  children,
+  title,
+  className,
+  focus = false,
+}: {
+  children: React.ReactNode;
+  title: string;
+  className?: string;
+  /** Take focus even on a first load, for a screen that replaced another one in place. */
+  focus?: boolean;
+}) {
   const ref = useRef<HTMLHeadingElement>(null);
   useEffect(() => {
     document.title = `${title} · Tabs to Trails`;
   }, [title]);
   useEffect(() => {
-    if (hasNavigated()) ref.current?.focus();
+    if (focus || hasNavigated()) ref.current?.focus();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   return (
     <h1 ref={ref} tabIndex={-1} className={className}>

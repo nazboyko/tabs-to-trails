@@ -64,7 +64,7 @@ function Timeline({ d }: { d: ReadyDetail }) {
   );
 }
 
-export function Ready({ detail: d }: { detail: ReadyDetail }) {
+export function Ready({ detail: d, arrived = false }: { detail: ReadyDetail; arrived?: boolean }) {
   const flagged = d.sections.filter((s) => s.checkNumbers.length);
   const flaggedCount = flagged.reduce((n, s) => n + s.checkNumbers.length, 0);
   const counts = [
@@ -78,9 +78,17 @@ export function Ready({ detail: d }: { detail: ReadyDetail }) {
     <div className="page tight">
       <div className="stack" style={{ gap: 10 }}>
         <div className="eyebrow orange">Ready to walk</div>
-        <ScreenTitle title="Ready to walk">{d.title}</ScreenTitle>
+        <ScreenTitle title="Ready to walk" focus={arrived}>
+          {d.title}
+        </ScreenTitle>
+        {arrived && (
+          <p className="visually-hidden" role="status">
+            Your Walk Edition is ready.
+          </p>
+        )}
         <div className="duration">
-          <span className="mono" aria-label={`Measured length ${clock(d.meta.actualSeconds)}`}>
+          <span className="mono">
+            <span className="visually-hidden">Measured length </span>
             {clock(d.meta.actualSeconds)}
           </span>
           <span>{askedLine(d)}</span>
