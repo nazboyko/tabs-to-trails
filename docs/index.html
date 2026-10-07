@@ -1,0 +1,220 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tabs to Trails: turn your reading backlog into a walk</title>
+<meta name="description" content="Paste a link, pick a walk length, get an MP3 made on your own computer with Gemma 4 and Kokoro. Then pocket the phone and go.">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<style>
+@font-face { font-family: 'Figtree'; font-weight: 400; font-display: swap; src: url(fonts/figtree-latin-400-normal.woff2) format('woff2'); }
+@font-face { font-family: 'Figtree'; font-weight: 600; font-display: swap; src: url(fonts/figtree-latin-600-normal.woff2) format('woff2'); }
+@font-face { font-family: 'Figtree'; font-weight: 700; font-display: swap; src: url(fonts/figtree-latin-700-normal.woff2) format('woff2'); }
+@font-face { font-family: 'Newsreader'; font-weight: 400; font-display: swap; src: url(fonts/newsreader-latin-400-normal.woff2) format('woff2'); }
+@font-face { font-family: 'Newsreader'; font-weight: 500; font-display: swap; src: url(fonts/newsreader-latin-500-normal.woff2) format('woff2'); }
+@font-face { font-family: 'Newsreader'; font-style: italic; font-weight: 400; font-display: swap; src: url(fonts/newsreader-latin-400-italic.woff2) format('woff2'); }
+@font-face { font-family: 'JetBrains Mono'; font-weight: 400; font-display: swap; src: url(fonts/jetbrains-mono-latin-400-normal.woff2) format('woff2'); }
+@font-face { font-family: 'JetBrains Mono'; font-weight: 500; font-display: swap; src: url(fonts/jetbrains-mono-latin-500-normal.woff2) format('woff2'); }
+:root { --paper: #F5F0E6; --card: #FFFCF5; --ink: #1E3A2B; --ink-soft: #47644F; --muted: #55655A; --rule: #DCD4C2; --orange: #BF4A0F; --orange-text: #A53F0B; --orange-soft: #FBEEE2; --forest-text: #F5F0E6; --forest-muted: #D5DCCF; color-scheme: light; }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--paper); color: var(--ink); font-family: 'Figtree', system-ui, sans-serif; font-size: 17px; line-height: 1.55; }
+a { color: var(--ink); text-underline-offset: 3px; }
+:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+.wrap { max-width: 760px; margin: 0 auto; padding: 0 20px; }
+header.top { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; padding: 20px 32px; border-bottom: 1px solid var(--rule); }
+.mark { display: flex; align-items: center; gap: 10px; font-family: 'Newsreader', Georgia, serif; font-size: 22px; font-weight: 500; text-decoration: none; }
+.top a.repo { font-size: 15px; font-weight: 600; }
+.hero { padding: 72px 0 40px; display: flex; flex-direction: column; gap: 18px; }
+h1 { margin: 0; font-family: 'Newsreader', Georgia, serif; font-weight: 400; font-size: 54px; line-height: 1.06; letter-spacing: -0.01em; }
+.lede { margin: 0; font-size: 20px; color: var(--muted); max-width: 600px; }
+.actions { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 8px; }
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 10px; min-height: 52px; padding: 0 22px; border-radius: 12px; border: 1px solid var(--ink); font-weight: 700; text-decoration: none; }
+.btn.primary { background: var(--orange); border-color: var(--orange); color: #FFFFFF; }
+.btn.primary:hover { background: #A9410C; }
+.btn:hover { background: rgba(30, 58, 43, 0.06); }
+section { padding: 40px 0; border-top: 1px solid var(--rule); }
+h2 { margin: 0 0 18px; font-family: 'Newsreader', Georgia, serif; font-weight: 400; font-size: 34px; line-height: 1.15; }
+h3 { margin: 0; font-size: 20px; }
+.steps { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; }
+.steps li { padding: 20px; background: var(--card); border: 1px solid var(--rule); border-radius: 14px; }
+.steps .n { font-family: 'JetBrains Mono', ui-monospace, monospace; color: var(--orange-text); font-weight: 500; }
+.steps p { margin: 6px 0 0; color: var(--muted); font-size: 16px; }
+.shots { display: grid; grid-template-columns: 2fr 1fr; gap: 16px; align-items: start; }
+.shots img { width: 100%; height: auto; border: 1px solid var(--rule); border-radius: 12px; background: var(--card); }
+.shots figcaption { font-size: 14px; color: var(--muted); margin-top: 6px; }
+figure { margin: 0; }
+.sample { display: flex; flex-direction: column; gap: 12px; padding: 24px; margin-bottom: 18px; background: var(--card); border: 1px solid var(--rule); border-radius: 16px; }
+.sample .meta { font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 14px; color: var(--muted); }
+.sample audio { width: 100%; }
+.small { margin: 0; font-size: 15px; color: var(--muted); }
+details summary { cursor: pointer; font-weight: 600; min-height: 44px; display: flex; align-items: center; }
+.script { max-height: 420px; overflow-y: auto; padding: 4px 16px 16px; border: 1px solid var(--rule); border-radius: 10px; background: #FFFFFF; }
+.script p { margin: 12px 0 0; }
+.script .app { padding: 10px 12px; background: var(--orange-soft); border-radius: 8px; }
+.script .t { display: block; font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 13px; color: var(--orange-text); font-weight: 500; }
+.local { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; }
+.local div { padding: 18px 20px; border: 1px solid var(--rule); border-radius: 14px; }
+.local strong { display: block; }
+.walking { background: #1E3A2B; color: var(--forest-text); border-radius: 18px; padding: 32px; margin: 8px 0 0; }
+.walking .big { font-family: 'Newsreader', Georgia, serif; font-style: italic; font-size: 44px; line-height: 1.1; }
+.walking p { color: var(--forest-muted); margin: 10px 0 0; }
+.walking a { color: var(--forest-text); }
+.walking :focus-visible { outline-color: var(--forest-text); }
+footer { padding: 32px 0 56px; border-top: 1px solid var(--rule); font-size: 15px; color: var(--muted); }
+code { font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 15px; }
+@media (max-width: 600px) { h1 { font-size: 40px; } .shots { grid-template-columns: 1fr; } header.top { padding: 16px 20px; } }
+</style>
+</head>
+<body>
+<header class="top">
+  <a class="mark" href="./"><svg width="28" height="28" viewBox="0 0 28 28" fill="none" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 21V9a3 3 0 0 1 3-3h6a3 3 0 0 1 3 3v2" stroke="#1E3A2B" stroke-width="1.8"/><path d="M15 11c5 0 2 10 10 10" stroke="#BF4A0F" stroke-width="1.8" stroke-dasharray="1.5 3.5"/></svg>Tabs to Trails</a>
+  <a class="repo" href="https://github.com/nazboyko/tabs-to-trails">Code on GitHub</a>
+</header>
+<main class="wrap">
+  <div class="hero">
+    <h1>Turn your reading backlog into a walk.</h1>
+    <p class="lede">Paste the article you keep meaning to read and say how long your walk is. Your own computer turns it into an MP3 of that length, with Gemma 4 and the Kokoro voice running locally. Scan the code, pocket the phone, go.</p>
+    <div class="actions">
+      <a class="btn primary" href="#samples">Hear two samples</a>
+      <a class="btn" href="https://github.com/nazboyko/tabs-to-trails">Get it on GitHub</a>
+    </div>
+  </div>
+
+  <!-- VIDEO: the demo video goes here as a figure with its caption. -->
+
+  <section aria-labelledby="how">
+    <h2 id="how">About a minute at the screen</h2>
+    <ol class="steps">
+      <li><span class="n">1</span><h3>Paste</h3><p>A link, some text or a .md file. Something you already meant to read.</p></li>
+      <li><span class="n">2</span><h3>Pick a length</h3><p>10, 20 or 30 minutes, or the whole thing. The plan uses the voice's measured pace.</p></li>
+      <li><span class="n">3</span><h3>Pocket it</h3><p>Scan the QR code, download the MP3, press play. A chime and a cue tell you when you're halfway.</p></li>
+    </ol>
+  </section>
+
+  <section aria-labelledby="screens">
+    <h2 id="screens">What it looks like</h2>
+    <div class="shots">
+      <figure><img src="screenshots/ready.png" width="1280" height="1161" alt="The Ready screen: the walk's measured length in large numbers, a QR code for the phone, and Download MP3 and Read the script buttons."><figcaption>Ready to walk: the measured length, the QR code and the download.</figcaption></figure>
+      <figure><img src="screenshots/phone-playing.png" width="390" height="844" alt="The phone's playing screen, dark green: Pocket your phone, a progress line with the halfway mark, and back, pause and forward buttons."><figcaption>The only dark screen: on the phone, while you walk.</figcaption></figure>
+    </div>
+  </section>
+
+  <section id="samples" aria-labelledby="samples-title">
+    <h2 id="samples-title">Hear two Walk Editions</h2>
+    <p class="small" style="margin-bottom:18px">Both were made with this repository on one laptop. Each script shows what the voice says and when.</p>
+    <article class="sample">
+      <div>
+        <h3>My Six-Year-Old Can't Do Five Things at Once, So His Screen Shows One</h3>
+        <p class="meta">10:12 measured · asked for 10:00 · read by Heart</p>
+      </div>
+      <audio controls preload="none" src="samples/my-six-year-old-cant-do-five-things-at-once-so-his-screen-10min-walk.mp3" aria-label="My Six-Year-Old Can't Do Five Things at Once, So His Screen Shows One, 10:12"></audio>
+      <p class="small">1,863 words in the source, 1,535 in the script. Halfway cue at 5:05. <a href="samples/my-six-year-old-cant-do-five-things-at-once-so-his-screen-10min-walk.mp3" download>Download the MP3</a></p>
+      <details>
+        <summary>Read the script</summary>
+        <div class="script">
+<p class="app"><span class="t">0:00 · The app</span>This is your 10-minute Walk Edition of My Six-Year-Old Can't Do Five Things at Once, So His Screen Shows One. Start walking. I'll tell you when you're halfway.</p>
+<p><span class="t">0:11 · Opening (Full)</span>This is a submission for the Hacktoberfest Weekend Challenge: Build for a Friend</p>
+<p><span class="t">0:17 · What I Built (Full)</span>My son is six and started kindergarten a month ago. A school morning asks him for five things: eat, brush teeth, get dressed, shoes and jacket, backpack. Breakfast is easy, because breakfast is one pancake with honey and he is very consistent about that. The rest is where it falls apart. He starts getting dressed, remembers his teeth, wants to play, and a few minutes later he is doing all three at once, which means none of them.</p>
+<p><span class="t">I noticed that he is fine with any single step. What he cannot hold is the list. So I built a screen for him that never shows a list.</span></p>
+<p><span class="t">One Thing is a small app for our home network. I type the routine in plain words. A Gemma 4 model running on my laptop turns it into a short mission with a theme (I went with rockets). I read every step and fix what I don't like. Only after I approve it does it reach the kid screen on the tablet, and there it shows exactly one step at a time: one big emoji, a few words, and one button.</span></p>
+<p><span class="t">There is a picture here: The kid screen at tablet size: a large pancake emoji, the step title &quot;Fuel up&quot;, a timer at 9:57, and a round amber button labeled &quot;Hold when done&quot; with its ring partly filled.</span></p>
+<p><span class="t">Every rule on that screen comes from something I see on our mornings:</span></p>
+<p><span class="t">Every rule on the screen comes from morning observations. The screen shows one step, never a list. Every step is read aloud. The button must be held, not tapped. Brushing teeth uses a timer he cannot skip. Nothing ever fails. The end is always visible. I approve every mission first.</span></p>
+<p><span class="t">1:59 · Demo (Full)</span>Try the kid screen yourself: nazboyko.github.io/one-thing/demo. It plays the built-in sample mission in your browser. Hold the amber button; a quick tap does nothing.</p>
+<p><span class="t">In the video (79 seconds) I type a routine for getting ready to go outside and give it the theme &quot;space walk&quot;. Gemma writes the mission in 2.6 seconds. I scroll through the steps, approve it, and the kid screen plays the mission to the finale. The typing is sped up 2x and labeled. The kid screen runs at normal speed, and you can hear it say each step.</span></p>
+<p><span class="t">Where it stands. This is the first working version, built in one evening. My son has not used it yet. I wanted it finished and checked before it goes in front of him, and I wanted the first try to be a calm one, not one squeezed in before a deadline. Everything in this post is about the idea and how it is built, not about results.</span></p>
+<p><span class="t">2:57 · How I Built It (Condensed)</span>The open-source AI at the center is Gemma 4, Google's open-weight model (gemma4:e4b, with thinking turned off). Ollama, an open-source runtime, runs it on my laptop. Around them sits one Go binary that uses only the standard library, with a React front end compiled into it. There is no database, no account and no cloud. Saved missions are JSON files in a folder, and the only network call the app makes is to Ollama on localhost.</p>
+<p><span class="t">The Go server sends JSON to Ollama running Gemma 4. The server sanitizes, validates, and retries the request once. The parent then reads, edits, and approves the mission. The tablet shows one step at a time.</span></p>
+<p><span class="t">Getting a small model to return something I can trust. I don't want prose from the model. I want a mission my code can check. So the request to Ollama carries a JSON schema, and Gemma has to answer in that shape. A mission holds three to eight steps, and each step is described like this:</span></p>
+<p><span class="t">The code defines an object structure. This structure requires emoji, title, say, mode, and seconds. The mode can be until_done or for_duration.</span></p>
+<p><span class="t">A schema guarantees the shape, not the sense. So every answer goes through two more functions. Sanitize fixes what is safe to fix: stray whitespace, Title Case in step titles, a timer outside the allowed range, an &quot;emoji&quot; that is not one. Validate returns plain field errors such as steps[2].title: too many words (at most 6). If any remain, the server sends them back to the model as a follow-up message and asks once more.</span></p>
+<p><span class="t">Here is what I typed:</span></p>
+<p><span class="t">Routine: School morning for a 6-year-old: breakfast, brush teeth, get dressed, shoes and jacket, backpack. Brushing teeth is the hardest part, split it into short pieces. Theme: rocket launch</span></p>
+<p><span class="t">And this is the raw answer, with only the line breaks tidied:</span></p>
+<p><span class="t">The code shows a rocket launch preparation. It has steps for fueling up, polishing teeth, suiting up, sealing gear, and packing the rocket.</span></p>
+<p><span class="t">I would still change one line before approving it. &quot;Keep fueling up!&quot; sounds like &quot;eat more&quot;, which the prompt tells the model never to say.</span></p>
+<p><span class="t">Numbers from my laptop (Apple M5 Max, 64 GB, Ollama 0.35, model already loaded):</span></p>
+<p><span class="t">Numbers from my laptop are listed. Thinking off takes 2.4 seconds on average. Thinking on takes 11.3 seconds for one run. Thinking off was valid on the first try 22 of 22 runs. The 22 runs went through the server while I tuned the prompt. Thinking made Gemma several times slower and worse at this job, so it stays off.</span></p>
+<p><span class="t">The 22 runs went through the server while I tuned the prompt (school mornings, a bedtime, an after-school routine), and the time includes parsing and validation. The retry never fired; it is covered by tests against a fake Ollama. Thinking made Gemma several times slower and worse at this job, so it stays off.</span></p>
+<p><span class="t">The prompt needed real fixes. The first version returned valid JSON every time, and as a parent I would still have rejected half of it. Asked for &quot;breakfast&quot;, it invented cereal. Asked to split tooth brushing because it is the hardest part, a bedtime run kept it as one two-minute step. So the prompt now says:</span></p>
+<p><span class="t">The prompt now requires using only named actions and things. Do not invent foods, clothes, or objects. If the parent says &quot;breakfast&quot;, say &quot;Eat your breakfast&quot;. If a part is hard or needs splitting, it must become two or three separate steps.</span></p>
+<p><span class="t">Brushing has been split in every run. Two more fixes came from reading output the same way. One run said eat your breakfast until done. Another made breakfast a two-minute timed step. This would have locked the button while he eats.</span></p>
+<p><span class="t">What did not work. In 3 of 8 morning runs that I read line by line, Gemma folded shoes and jacket into just shoes. Four rounds of prompt changes fixed everything else I found, but not this. This is why the parent reads every step before approving. And why I would not let a model talk to my son directly.</span></p>
+<p><span class="t">Small things that turned out to matter. The hold button fires after 0.8 seconds, measured from timestamps, not animation frames. Quick taps do nothing, and letting go early drains the ring. Step timers come from timestamps too. ?speed=20 in the address makes them twenty times faster.</span></p>
+<p><span class="t">Gemma once returned a colon as the emoji for both teeth steps. My validator let it through. Now any plain ASCII there is rejected and replaced with a star. The first voice the app picked sounded robotic. It now uses only voices installed on the device. On the parent screen I can pick another voice and test it. If I set a time to leave, the last screen says how long is left.</span></p>
+<p><span class="t">8:20 · Why Does Open Innovation Matter? (Full)</span>For this project it is not a nice extra. It decides whether I would use the thing at all.</p>
+<p><span class="t">The input is a description of where my child struggles. &quot;Brushing teeth is the hardest part.&quot; &quot;He only eats one thing for breakfast.&quot; That is what I type into the box. With open weights on my own laptop, those sentences go from my keyboard to my own memory and nowhere else. I did not have to read anyone's privacy policy to decide that this was fine.</span></p>
+<p><span class="t">It does not need the internet. The page, the Lexend font, the model and the saved missions all live on the laptop. A morning routine should not depend on somebody else's uptime.</span></p>
+<p><span class="t">It costs nothing, so I can be picky. I generated dozens of missions while tuning the prompt. There is no meter running, no key to protect, and no account to create for a tool that a six-year-old uses.</span></p>
+<p><span class="t">Anyone can change how it thinks. The system prompt is a text file in the repository, and the model is one line of configuration. If your kid is four, or ten, or needs steps cut even smaller, you edit a paragraph of English, not a product.</span></p>
+<p><span class="t">I would be sending notes about my son to a third party every time. I would pay per call for something that runs a few seconds a week. For a family tool, local and open is simply the right shape.</span></p>
+<p><span class="t">9:45 · Prize Categories (Brief)</span>This source covers how Gemma 4 is used to turn a parent's description into single, physical, kid-sized steps.</p>
+<p class="app"><span class="t">5:05 · The app, after a chime</span>You're halfway. If you're walking out and back, turn around now.</p>
+<p class="app"><span class="t">The app, a question for the last stretch</span>Here is something to think about on the way back. Given that the parent must read every step before approving, what does this suggest about the necessary level of trust in the model's output for a family tool?</p>
+<p class="app"><span class="t">The app</span>That's the end. You should be almost home.</p>
+        </div>
+      </details>
+    </article>
+    <article class="sample">
+      <div>
+        <h3>Walking, part one, by Henry David Thoreau</h3>
+        <p class="meta">19:40 measured · asked for 20:00 · read by George</p>
+      </div>
+      <audio controls preload="none" src="samples/walking-part-one-by-henry-david-thoreau-20min-walk.mp3" aria-label="Walking, part one, by Henry David Thoreau, 19:40"></audio>
+      <p class="small">3,160 words in the source, 3,160 in the script. Halfway cue at 9:45. <a href="samples/walking-part-one-by-henry-david-thoreau-20min-walk.mp3" download>Download the MP3</a></p>
+      <details>
+        <summary>Read the script</summary>
+        <div class="script">
+<p class="app"><span class="t">0:00 · The app</span>This is your 20-minute Walk Edition of Walking, part one, by Henry David Thoreau. Start walking. I'll tell you when you're halfway.</p>
+<p><span class="t">0:10 · Part 1 (Full)</span>I wish to speak a word for Nature, for absolute Freedom and Wildness, as contrasted with a freedom and culture merely civil,—to regard man as an inhabitant, or a part and parcel of Nature, rather than a member of society. I wish to make an extreme statement, if so I may make an emphatic one, for there are enough champions of civilization: the minister and the school committee and every one of you will take care of that.</p>
+<p><span class="t">I have met with but one or two persons in the course of my life who understood the art of Walking, that is, of taking walks—who had a genius, so to speak, for sauntering, which word is beautifully derived “from idle people who roved about the country, in the Middle Ages, and asked charity, under pretense of going à la Sainte Terre,” to the Holy Land, till the children exclaimed, “There goes a Sainte-Terrer,” a Saunterer, a Holy-Lander. They who never go to the Holy Land in their walks, as they pretend, are indeed mere idlers and vagabonds; but they who do go there are saunterers in the good sense, such as I mean. Some, however, would derive the word from sans terre without land or a home, which, therefore, in the good sense, will mean, having no particular home, but equally at home everywhere. For this is the secret of successful sauntering. He who sits still in a house all the time may be the greatest vagrant of all; but the saunterer, in the good sense, is no more vagrant than the meandering river, which is all the while sedulously seeking the shortest course to the sea. But I prefer the first, which, indeed, is the most probable derivation. For every walk is a sort of crusade, preached by some Peter the Hermit in us, to go forth and reconquer this Holy Land from the hands of the Infidels.</span></p>
+<p><span class="t">It is true, we are but faint-hearted crusaders, even the walkers, nowadays, who undertake no persevering, never-ending enterprises. Our expeditions are but tours, and come round again at evening to the old hearth-side from which we set out. Half the walk is but retracing our steps. We should go forth on the shortest walk, perchance, in the spirit of undying adventure, never to return,—prepared to send back our embalmed hearts only as relics to our desolate kingdoms. If you are ready to leave father and mother, and brother and sister, and wife and child and friends, and never see them again,—if you have paid your debts, and made your will, and settled all your affairs, and are a free man; then you are ready for a walk.</span></p>
+<p><span class="t">To come down to my own experience, my companion and I, for I sometimes have a companion, take pleasure in fancying ourselves knights of a new, or rather an old, order—not Equestrians or Chevaliers, not Ritters or Riders, but Walkers, a still more ancient and honorable class, I trust. The chivalric and heroic spirit which once belonged to the Rider seems now to reside in, or perchance to have subsided into, the Walker—not the Knight, but Walker Errant. He is a sort of fourth estate, outside of Church and State and People.</span></p>
+<p><span class="t">We have felt that we almost alone hereabouts practiced this noble art; though, to tell the truth, at least if their own assertions are to be received, most of my townsmen would fain walk sometimes, as I do, but they cannot. No wealth can buy the requisite leisure, freedom, and independence which are the capital in this profession. It comes only by the grace of God. It requires a direct dispensation from Heaven to become a walker. You must be born into the family of the Walkers. Ambulator nascitur, non fit. Some of my townsmen, it is true, can remember and have described to me some walks which they took ten years ago, in which they were so blessed as to lose themselves for half an hour in the woods; but I know very well that they have confined themselves to the highway ever since, whatever pretensions they may make to belong to this select class. No doubt they were elevated for a moment as by the reminiscence of a previous state of existence, when even they were foresters and outlaws.</span></p>
+<p><span class="t">“When he came to grene wode, In a mery mornynge, There he herde the notes small Of byrdes mery syngynge.</span></p>
+<p><span class="t">“It is ferre gone, sayd Robyn, That I was last here; Me lyste a lytell for to shote At the donne dere.”</span></p>
+<p><span class="t">I think that I cannot preserve my health and spirits, unless I spend four hours a day at least—and it is commonly more than that—sauntering through the woods and over the hills and fields, absolutely free from all worldly engagements. You may safely say, A penny for your thoughts, or a thousand pounds. When sometimes I am reminded that the mechanics and shopkeepers stay in their shops not only all the forenoon, but all the afternoon too, sitting with crossed legs, so many of them—as if the legs were made to sit upon, and not to stand or walk upon—I think that they deserve some credit for not having all committed suicide long ago.</span></p>
+<p><span class="t">I, who cannot stay in my chamber for a single day without acquiring some rust, and when sometimes I have stolen forth for a walk at the eleventh hour, or four o’clock in the afternoon, too late to redeem the day, when the shades of night were already beginning to be mingled with the daylight, have felt as if I had committed some sin to be atoned for,—I confess that I am astonished at the power of endurance, to say nothing of the moral insensibility, of my neighbors who confine themselves to shops and offices the whole day for weeks and months, aye, and years almost together. I know not what manner of stuff they are of—sitting there now at three o’clock in the afternoon, as if it were three o’clock in the morning. Bonaparte may talk of the three-o’clock-in-the-morning courage, but it is nothing to the courage which can sit down cheerfully at this hour in the afternoon over against one’s self whom you have known all the morning, to starve out a garrison to whom you are bound by such strong ties of sympathy. I wonder that about this time, or say between four and five o’clock in the afternoon, too late for the morning papers and too early for the evening ones, there is not a general explosion heard up and down the street, scattering a legion of antiquated and house-bred notions and whims to the four winds for an airing—and so the evil cure itself.</span></p>
+<p><span class="t">7:04 · Part 2 (Full)</span>How womankind, who are confined to the house still more than men, stand it I do not know; but I have ground to suspect that most of them do not stand it at all. When, early in a summer afternoon, we have been shaking the dust of the village from the skirts of our garments, making haste past those houses with purely Doric or Gothic fronts, which have such an air of repose about them, my companion whispers that probably about these times their occupants are all gone to bed. Then it is that I appreciate the beauty and the glory of architecture, which itself never turns in, but forever stands out and erect, keeping watch over the slumberers.</p>
+<p><span class="t">No doubt temperament, and, above all, age, have a good deal to do with it. As a man grows older, his ability to sit still and follow indoor occupations increases. He grows vespertinal in his habits as the evening of life approaches, till at last he comes forth only just before sundown, and gets all the walk that he requires in half an hour.</span></p>
+<p><span class="t">But the walking of which I speak has nothing in it akin to taking exercise, as it is called, as the sick take medicine at stated hours—as the swinging of dumb-bells or chairs; but is itself the enterprise and adventure of the day. If you would get exercise, go in search of the springs of life. Think of a man’s swinging dumb-bells for his health, when those springs are bubbling up in far-off pastures unsought by him!</span></p>
+<p><span class="t">Moreover, you must walk like a camel, which is said to be the only beast which ruminates when walking. When a traveler asked Wordsworth’s servant to show him her master’s study, she answered, “Here is his library, but his study is out of doors.”</span></p>
+<p><span class="t">Living much out of doors, in the sun and wind, will no doubt produce a certain roughness of character—will cause a thicker cuticle to grow over some of the finer qualities of our nature, as on the face and hands, or as severe manual labor robs the hands of some of their delicacy of touch. So staying in the house, on the other hand, may produce a softness and smoothness, not to say thinness of skin, accompanied by an increased sensibility to certain impressions. Perhaps we should be more susceptible to some influences important to our intellectual and moral growth, if the sun had shone and the wind blown on us a little less; and no doubt it is a nice matter to proportion rightly the thick and thin skin. But methinks that is a scurf that will fall off fast enough—that the natural remedy is to be found in the proportion which the night bears to the day, the winter to the summer, thought to experience. There will be so much the more air and sunshine in our thoughts. The callous palms of the laborer are conversant with finer tissues of self-respect and heroism, whose touch thrills the heart, than the languid fingers of idleness. That is mere sentimentality that lies abed by day and thinks itself white, far from the tan and callus of experience.</span></p>
+<p><span class="t">When we walk, we naturally go to the fields and woods: what would become of us, if we walked only in a garden or a mall? Even some sects of philosophers have felt the necessity of importing the woods to themselves, since they did not go to the woods. “They planted groves and walks of Platanes,” where they took subdiales ambulationes in porticos open to the air. Of course it is of no use to direct our steps to the woods, if they do not carry us thither. I am alarmed when it happens that I have walked a mile into the woods bodily, without getting there in spirit. In my afternoon walk I would fain forget all my morning occupations and my obligations to society. But it sometimes happens that I cannot easily shake off the village. The thought of some work will run in my head and I am not where my body is—I am out of my senses. In my walks I would fain return to my senses. What business have I in the woods, if I am thinking of something out of the woods? I suspect myself, and cannot help a shudder when I find myself so implicated even in what are called good works—for this may sometimes happen.</span></p>
+<p><span class="t">My vicinity affords many good walks; and though for so many years I have walked almost every day, and sometimes for several days together, I have not yet exhausted them. An absolutely new prospect is a great happiness, and I can still get this any afternoon. Two or three hours’ walking will carry me to as strange a country as I expect ever to see. A single farmhouse which I had not seen before is sometimes as good as the dominions of the king of Dahomey. There is in fact a sort of harmony discoverable between the capabilities of the landscape within a circle of ten miles’ radius, or the limits of an afternoon walk, and the threescore years and ten of human life. It will never become quite familiar to you.</span></p>
+<p><span class="t">Nowadays almost all man’s improvements, so called, as the building of houses and the cutting down of the forest and of all large trees, simply deform the landscape, and make it more and more tame and cheap. A people who would begin by burning the fences and let the forest stand! I saw the fences half consumed, their ends lost in the middle of the prairie, and some worldly miser with a surveyor looking after his bounds, while heaven had taken place around him, and he did not see the angels going to and fro, but was looking for an old post-hole in the midst of paradise. I looked again, and saw him standing in the middle of a boggy Stygian fen, surrounded by devils, and he had found his bounds without a doubt, three little stones, where a stake had been driven, and looking nearer, I saw that the Prince of Darkness was his surveyor.</span></p>
+<p><span class="t">13:25 · Part 3 (Full)</span>I can easily walk ten, fifteen, twenty, any number of miles, commencing at my own door, without going by any house, without crossing a road except where the fox and the mink do. First along by the river, and then the brook, and then the meadow and the wood-side. There are square miles in my vicinity which have no inhabitant. From many a hill I can see civilization and the abodes of man afar. The farmers and their works are scarcely more obvious than woodchucks and their burrows. Man and his affairs, church and state and school, trade and commerce, and manufactures and agriculture even politics, the most alarming of them all, I am pleased to see how little space they occupy in the landscape. Politics is but a narrow field, and that still narrower highway yonder leads to it. I sometimes direct the traveler thither. If you would go to the political world, follow the great road, follow that market-man, keep his dust in your eyes, and it will lead you straight to it. For it, too, has its place merely, and does not occupy all space. I pass from it as from a bean field into the forest, and it is forgotten. In one half hour I can walk off to some portion of the earth’s surface where a man does not stand from one year’s end to another, and there, consequently, politics are not, for they are but as the cigar smoke of a man.</p>
+<p><span class="t">The village is the place to which the roads tend, a sort of expansion of the highway, as a lake of a river. It is the body of which roads are the arms and legs, a trivial or quadrivial place, the thoroughfare and ordinary of travelers. The word is from the Latin villa which together with via, a way, or more anciently ved and vella, Varro derives from veho, to carry, because the villa is the place to and from which things are carried. They who got their living by teaming were said vellaturam facere. Hence, too, the Latin word vilis and our vile, also villain. This suggests what kind of degeneracy villagers are liable to. They are wayworn by the travel that goes by and over them, without traveling themselves.</span></p>
+<p><span class="t">Some do not walk at all. Others walk in the highways. A few walk across lots. Roads are made for horses and men of business. I do not travel in them much, comparatively, because I am not in a hurry to get to any tavern or grocery or livery-stable or depot to which they lead. I am a good horse to travel, but not from choice a roadster. The landscape-painter uses the figures of men to mark a road. He would not make that use of my figure. I walk out into a nature such as the old prophets and poets, Menu, Moses, Homer, Chaucer, walked in. You may name it America, but it is not America. Neither Americus Vespucius, nor Columbus, nor the rest were the discoverers of it. There is a truer amount of it in mythology than in any history of America, so called, that I have seen.</span></p>
+<p><span class="t">However, there are a few old roads that may be trodden with profit, as if they led somewhere now that they are nearly discontinued. There is the Old Marlborough Road, which does not go to Marlborough now, methinks, unless that is Marlborough where it carries me. I am the bolder to speak of it here, because I presume that there are one or two such roads in every town.</span></p>
+<p><span class="t">THE OLD MARLBOROUGH ROAD.</span></p>
+<p><span class="t">Where they once dug for money, But never found any. Where sometimes Martial Miles Singly files, And Elijah Wood, I fear for no good. No other man, Save Elisha Dugan, O man of wild habits, Partridges and rabbits, Who hast no cares Only to set snares, Who liv’st all alone, Close to the bone; And where life is sweetest Constantly eatest. When the spring stirs my blood With the instinct to travel, I can get enough gravel On the Old Marlborough Road. Nobody repairs it, For nobody wears it. It is a living way, As the Christians say. Not many there be Who enter therein, Only the guests of the Irishman Quin. What is it, what is it But a direction out there, And the bare possibility Of going somewhere? Great guide boards of stone, But travelers none; Cenotaphs of the towns Named on their crowns. It is worth going to see Where you might be. What king Did the thing, I am still wondering; Set up how or when, By what selectmen, Gourgas or Lee, Clark or Darby? They’re a great endeavor To be something forever; Blank tablets of stone, Where a traveler might groan, And in one sentence Grave all that is known Which another might read, In his extreme need. I know one or two Lines that would do, Literature that might stand All over the land, Which a man could remember Till next December, And read again in the spring, After the thawing. If with fancy unfurled You leave your abode, You may go round the world By the Old Marlborough Road.</span></p>
+<p><span class="t">At present, in this vicinity, the best part of the land is not private property; the landscape is not owned, and the walker enjoys comparative freedom. But possibly the day will come when it will be partitioned off into so-called pleasure grounds, in which a few will take a narrow and exclusive pleasure only, when fences shall be multiplied, and man traps and other engines invented to confine men to the public road, and walking over the surface of God’s earth shall be construed to mean trespassing on some gentleman’s grounds. To enjoy a thing exclusively is commonly to exclude yourself from the true enjoyment of it. Let us improve our opportunities, then, before the evil days come.</span></p>
+<p class="app"><span class="t">9:45 · The app, after a chime</span>You're halfway. If you're walking out and back, turn around now.</p>
+<p class="app"><span class="t">The app, a question for the last stretch</span>Here is something to think about on the way back. If the true essence of walking is to be at home everywhere, what does that imply about the necessity of having a fixed place?</p>
+<p class="app"><span class="t">The app</span>That's the end. You should be almost home.</p>
+        </div>
+      </details>
+    </article>
+  </section>
+
+  <section aria-labelledby="local">
+    <h2 id="local">Everything runs on your computer</h2>
+    <div class="local">
+      <div><strong>Gemma 4 through Ollama</strong>Rewrites for the ear, describes code and tables, writes the closing question. A number guard checks every number against the source.</div>
+      <div><strong>Kokoro-82M</strong>Reads the script on the CPU. The app measures the audio and shows the real length.</div>
+      <div><strong>Stays on your machine</strong>The server fetches the one link you typed and nothing else. Pasted text works with the internet off.</div>
+    </div>
+    <div class="walking">
+      <div class="big">Pocket your phone.</div>
+      <p>The MP3 holds the whole walk. Once it's on the phone, the app, the Wi-Fi and the laptop can stay home. <a href="https://github.com/nazboyko/tabs-to-trails#quick-start">Quick start on GitHub</a>.</p>
+    </div>
+  </section>
+</main>
+<footer>
+  <div class="wrap">
+    <p>Tabs to Trails, MIT license. Built for the DEV Hacktoberfest Open-Source AI Challenge 2026, Week 1 "Touch Grass". Credits for Gemma, Kokoro, the libraries and the fonts are in the <a href="https://github.com/nazboyko/tabs-to-trails#credits">README</a>. The Thoreau sample reads a public-domain text.</p>
+  </div>
+</footer>
+</body>
+</html>
