@@ -243,8 +243,10 @@ export function parseBlocks(markdown: string): Raw[] {
         }
         break;
       }
+      // A list of nothing but links ("See also", "Related posts") is skipped: there is nothing to hear.
+      const linksOnly = items.length >= 3 && items.every((t) => /^\s*\[[^\]]{1,200}\]\([^)\s]{1,2000}(?:\s+"[^"]{0,300}")?\)\s*$/.test(t));
       const clean = items.map(plainText).filter((t) => t !== '');
-      if (clean.length) out.push({ kind: 'list', text: clean.join('\n'), items: clean });
+      if (clean.length && !linksOnly) out.push({ kind: 'list', text: clean.join('\n'), items: clean });
       continue;
     }
     const para: string[] = [];

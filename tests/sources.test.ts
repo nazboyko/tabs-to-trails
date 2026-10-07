@@ -46,6 +46,29 @@ describe('extractArticle', () => {
     expect(kept.map((s) => s.heading)).not.toContain('References');
   });
 
+  it('turns a table with spans into a markdown table and drops reference lists', () => {
+    const para = '<p>' + 'People walked more in the second month than in the first, and the notes say why in plain words. '.repeat(6) + '</p>';
+    const html = `<html><head><title>T</title></head><body><article><h1>Counts</h1>${para}
+      <table><caption>Steps by group</caption><tr><th>Group</th><th>Age</th><th>Steps</th></tr>
+      <tr><th rowspan="2">Women</th><td>20-29</td><td>8,000</td></tr><tr><td>30-39</td><td>7,400</td></tr></table>
+      ${para}<p>See the paper.<sup class="reference"><a href="#cite_note-1">[1]</a></sup></p>
+      <ol class="references"><li>Somebody et al. 2011. A paper.</li></ol></article></body></html>`;
+    const out = extractArticle(html, 'https://x.example/a');
+    expect(out.markdown).toContain('Steps by group');
+    expect(out.markdown).toContain('| Group | Age | Steps |');
+    expect(out.markdown).toContain('| Women | 20-29 | 8,000 |');
+    expect(out.markdown).toContain('| 30-39 | 7,400 |  |');
+    expect(out.markdown).not.toContain('Somebody et al.');
+    expect(out.markdown).not.toContain('[1]');
+    const kinds = splitSections(out.markdown).flatMap((x) => x.blocks.map((b) => b.kind));
+    expect(kinds).toContain('table');
+  });
+
+  it('skips a list that is only links', () => {
+    const blocks = splitSections('Intro text here.\n\n- [One](https://a.example)\n- [Two](https://b.example)\n- [Three](https://c.example)')[0]!.blocks;
+    expect(blocks.map((b) => b.kind)).toEqual(['prose']);
+  });
+
   it('refuses a page with no article text', () => {
     expect(() => extractArticle('<html><body><p>Sign in to continue.</p></body></html>', 'https://x.example/')).toThrow(UNREADABLE);
   });

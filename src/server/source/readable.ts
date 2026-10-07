@@ -105,6 +105,39 @@ function turndown(): TurndownService {
   return td;
 }
 
+/** Reference lists, footnotes and edit links: things a listener has no use for. */
+const NOISE = [
+  'ol.references',
+  '.reflist',
+  '.references',
+  '.mw-references-wrap',
+  '.mw-editsection',
+  'sup.reference',
+  '.navbox',
+  '.footnotes',
+  'section.footnotes',
+  '[role="doc-endnotes"]',
+  '[role="doc-bibliography"]',
+  '.citation-needed',
+].join(',');
+
+function cellText(cell: Element): string {
+  return (cell.textContent ?? '').replace(/\s+/g, ' ').replace(/\|/g, '/').trim();
+}
+
+/** Any HTML table as a plain Markdown table; spans are flattened, the model only describes it. */
+export function tableToMarkdown(table: Element): string {
+  const rows = [...table.querySelectorAll('tr')]
+    .map((tr) => [...tr.querySelectorAll('th, td')].map(cellText))
+    .filter((cells) => cells.some((c) => c !== ''));
+  if (!rows.length) return '';
+  const width = Math.max(...rows.map((r) => r.length));
+  const line = (cells: string[]) => `| ${[...cells, ...new Array(width - cells.length).fill('')].join(' | ')} |`;
+  const caption = table.querySelector('caption') ? cellText(table.querySelector('caption')!) : '';
+  const out = [line(rows[0]!), `| ${new Array(width).fill('---').join(' | ')} |`, ...rows.slice(1).map(line)];
+  return (caption ? `${caption}\n\n` : '') + out.join('\n');
+}
+
 /** HTML to Markdown through Readability. Page scripts never run. */
 export function extractArticle(html: Buffer | string, pageUrl: string, contentType = 'text/html'): SourceDoc {
   const virtualConsole = new VirtualConsole();
@@ -112,11 +145,25 @@ export function extractArticle(html: Buffer | string, pageUrl: string, contentTy
   try {
     const doc = dom.window.document;
     const pageTitle = doc.title;
+    doc.querySelectorAll(NOISE).forEach((el) => el.remove());
     const article = new Readability(doc, { charThreshold: 300 }).parse();
     if (!article?.content || (article.textContent ?? '').trim().length < MIN_ARTICLE_CHARS) {
       throw new SourceError(UNREADABLE);
     }
-    const markdown = turndown().turndown(article.content);
+    const body = doc.createElement('div');
+    body.innerHTML = article.content;
+    body.querySelectorAll(NOISE).forEach((el) => el.remove());
+    const tables: string[] = [];
+    for (const table of [...body.querySelectorAll('table')].reverse()) {
+      if (table.parentElement?.closest('table')) continue;
+      const p = doc.createElement('p');
+      p.textContent = `T2TTABLE${tables.length}T2T`;
+      tables.push(tableToMarkdown(table));
+      table.replaceWith(p);
+    }
+    const markdown = turndown()
+      .turndown(body.innerHTML)
+      .replace(/T2TTABLE(\d+)T2T/g, (_, n: string) => `\n\n${tables[Number(n)] ?? ''}\n\n`);
     const title = (article.title || pageTitle || new URL(pageUrl).hostname).replace(/\s+/g, ' ').trim();
     return { kind: 'web', title, markdown, url: pageUrl, byline: article.byline ?? undefined };
   } finally {
