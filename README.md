@@ -42,9 +42,9 @@ flowchart LR
   G --> H[MP3 + script + QR]
 ```
 
-1. **Read.** dev.to links go through the DEV API. Other links are fetched once (http and https only, 10 seconds, 5 MB, 3 redirects, HTML only), parsed without running the page's scripts, and cleaned with Mozilla Readability. Reference lists and link lists are left out and named on the Ready screen.
+1. **Read.** dev.to links go through the DEV API, without a challenge post's submission line and Prize Categories section. Other links are fetched once (http and https only, 10 seconds, 5 MB, 3 redirects, HTML only), parsed without running the page's scripts, and cleaned with Mozilla Readability. Reference lists and link lists are left out too, and the Ready screen names everything left out. Images are skipped unless their alt text states data, like a chart with its numbers; that alt text is then read as a sentence.
 2. **Plan.** The text is split into sections by heading. The app measures once how fast the chosen voice speaks (characters per second on a fixed passage) and turns your walk length into a word budget. If the source fits, it is read in full. If not, Gemma rates how much each section matters, and the budget is split by length times importance.
-3. **Rewrite.** In full mode Gemma only describes code and tables in a few sentences; prose is read as written. In condensed mode each section gets one request with its word target. A rewrite that runs well over or under its budget gets one more pass, and any shortfall or overshoot carries into the sections that follow.
+3. **Rewrite.** In full mode Gemma only describes code and tables in a few sentences; prose is read as written. A table is told, not announced: "thinking off took 2.4 seconds", never "the numbers are listed". A description that announces gets one more try, and sentences that repeat the paragraph around the block are dropped. In condensed mode each section gets one request with its word target. A rewrite that runs well over or under its budget gets one more pass, and any shortfall or overshoot carries into the sections that follow.
 4. **Guard.** Any number in a rewrite that is not in its source section sends the section back once with the number named. If it comes back again, the script marks it "Check this number".
 5. **Voice.** Kokoro reads the script in sentence groups, each kept under the model's phoneme limit so nothing is cut off. The app measures the audio. If the walk runs more than 5% over, it shortens the largest condensed section; more than 8% under, it gives the time back to the condensed section that left out the most. It does this once and voices only that section again.
 6. **Pack.** ffmpeg makes a chime from two sine tones and encodes a mono 64 kbps MP3. The halfway cue goes at the sentence boundary nearest the middle of the finished walk.
@@ -57,8 +57,8 @@ Measured on an Apple M5 Max with 64 GB, `gemma4:e4b` through Ollama 0.35.1 with 
 
 | Source | Asked for | Measured | Halfway cue | Words in source / script | Model time | Voice time |
 |---|---|---|---|---|---|---|
-| The author's DEV post ([sample](samples/dev-post/)) | 10:00 | 10:12 | 5:05 | 1,863 / 1,535 | 5.3 s | 64.2 s |
-| Thoreau, "Walking", part one ([sample](samples/thoreau-walking/)) | 20:00 | 19:40 | 9:45 | 3,160 / 3,160 | 11 s | 155.3 s |
+| The author's DEV post ([sample](samples/dev-post/)) | 10:00 | 10:15 | 5:11 | 1,726 / 1,531 | 4.1 s | 63.5 s |
+| Thoreau, "Walking", part one ([sample](samples/thoreau-walking/)) | 20:00 | 19:39 | 9:45 | 3,160 / 3,160 | 3.7 s | 152 s |
 | A code-heavy blog post | 10:00 | 9:22 | 4:36 | 2,147 / 1,210 | 12.5 s | 61.8 s |
 | A Wikipedia article with tables | 10:00 | 9:56 | 4:47 | 1,451 / 1,085 | 4.9 s | 73 s |
 | A long Wikipedia article | 20:00 | 18:42 | 9:24 | 8,007 / 2,391 | 42.5 s | 122.4 s |
