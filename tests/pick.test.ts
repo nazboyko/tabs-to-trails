@@ -53,6 +53,35 @@ describe('picking a walk by length', () => {
     expect(pickWalk([row('x', 5, 1, { status: 'checking' }), row('y', 5, 2, { status: 'unreadable' })], 20)).toEqual([]);
   });
 
+  it('turns to best fit when first fit fills less than 80%: the 12-vs-19 case from the notes', () => {
+    // Saved in this order; first fit takes the DEV post and the bread text, 11.4 minutes for 20.
+    const notes = [row('walking', 39.2, 1), row('dev', 10.4, 2), row('thoreau', 19.2, 3), row('hiking', 29, 4), row('bread', 1, 5)];
+    expect(pickWalk(notes, 20)).toEqual(['thoreau', 'bread']);
+  });
+
+  it('keeps first fit when it fills 80% or more', () => {
+    // 16.5 of 20 is enough, though 19 alone would be closer.
+    expect(pickWalk([row('a', 16.5, 1), row('b', 19, 2)], 20)).toEqual(['a']);
+  });
+
+  it('lets the order decide between sets that are equally close', () => {
+    expect(pickWalk([row('m', 10.5, 1), row('p', 19, 2), row('q', 19, 3)], 20)).toEqual(['p']);
+  });
+
+  it('never goes over 105% and takes at most 8 rows in best fit', () => {
+    const picked = pickWalk([row('big', 22, 1), row('x', 12, 2), ...Array.from({ length: 12 }, (_, i) => row(`s${i}`, 0.9, i + 3))], 20);
+    expect(picked.length).toBeLessThanOrEqual(8);
+    const total = picked.reduce((n, id) => n + (id === 'x' ? 12 : id === 'big' ? 22 : 0.9), 0);
+    expect(total).toBeLessThanOrEqual(21);
+    expect(picked).toEqual(['x', 's0', 's1', 's2', 's3', 's4', 's5', 's6']);
+  });
+
+  it('keeps the next series part in a best-fit pick', () => {
+    // Without the part, "whole" alone would fit 20 exactly; the part stays and the rest fills around it.
+    const rows = [row('part', 4, 9, { seriesId: 's', part: 2 }), row('whole', 20, 1), row('small', 6, 2)];
+    expect(pickWalk(rows, 20)).toEqual(['part', 'small']);
+  });
+
   it('puts the next part of a series first, and no later part of it', () => {
     const series = [
       row('old', 10, 1),
