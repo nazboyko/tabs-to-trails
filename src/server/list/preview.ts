@@ -7,6 +7,8 @@
 import { firstPlan, walkSource } from '../pipeline.js';
 import { SECTION_GAP, wordsToSeconds } from '../script/budget.js';
 import type { Piece } from '../source/pieces.js';
+import type { Section } from '../source/sections.js';
+import { splitSeries } from './series.js';
 
 export interface PiecePreview {
   id: string;
@@ -16,6 +18,8 @@ export interface PiecePreview {
   /** As planned for this walk. */
   minutes: number;
   treatment: 'full' | 'condensed';
+  /** For a piece more than twice the walk: how many walks it would make as a series. */
+  splitParts?: number;
 }
 
 export interface WalkPreview {
@@ -29,6 +33,16 @@ export interface WalkPreview {
 }
 
 const round = (m: number) => Math.round(m * 10) / 10;
+
+/** One piece as a series of walks of this length: each part about what one walk reads in full. */
+export function seriesFor(piece: Piece, minutes: number, wpm: number): Section[][] {
+  const { info, sections } = walkSource([piece], []);
+  const { plan } = firstPlan(info, sections, minutes, wpm);
+  return splitSeries(sections, plan.budgetWords ?? Math.floor((minutes * wpm) / 1.1));
+}
+
+/** A piece this many times longer than the walk is offered as a series. */
+export const SERIES_FACTOR = 2;
 
 export function previewFrom(pieces: Piece[], ids: string[], minutes: number | null, wpm: number, quietMinutes = 0): WalkPreview {
   const { info, sections } = walkSource(pieces, []);

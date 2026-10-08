@@ -97,7 +97,9 @@ describe('the panel and the walk agree', () => {
       const { info, sections } = walkSource(pieces, []);
       const { plan } = firstPlan(info, sections, minutes, DEFAULT_WPM);
       expect(panel.mode).toBe(plan.mode);
-      expect(panel).toEqual(previewFrom(pieces, ids, minutes, DEFAULT_WPM));
+      // The panel may also offer a series for a long piece; the plan itself is the build's.
+      const plain = { ...panel, pieces: panel.pieces.map(({ splitParts: _offer, ...p }) => p) };
+      expect(plain).toEqual(previewFrom(pieces, ids, minutes, DEFAULT_WPM));
       const planned = (p: number) => plan.sections.filter((s) => s.piece === p).reduce((n, s) => n + s.targetWords, 0);
       expect(panel.pieces[0]!.minutes / panel.pieces[1]!.minutes).toBeCloseTo((planned(0) + 1 / 60) / planned(1), 0);
     }

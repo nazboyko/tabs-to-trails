@@ -20,6 +20,10 @@ const Source = z.discriminatedUnion('kind', [
 export const SaveBody = z.object({ sources: z.array(Source).min(1).max(50) });
 export const PasteBody = z.object({ text: z.string().max(MAX_TEXT_CHARS), title: z.string().max(300).optional() });
 export const OrderBody = z.object({ ids: z.array(Id).max(10_000) });
+export const SplitBody = z.object({
+  minutes: z.union([z.literal(10), z.literal(20), z.literal(30), z.literal(45), z.literal(60)]),
+  voice: z.enum(VOICE_KEYS),
+});
 export const PreviewBody = z.object({
   items: z.array(Id).min(1).max(MAX_PIECES),
   minutes: z.union([z.literal(10), z.literal(20), z.literal(30), z.literal(45), z.literal(60), z.null()]),
@@ -89,6 +93,19 @@ export function listRoutes(list: WalkList, jobs: Jobs) {
       try {
         const item = await list.paste(id, parsed.data.text, parsed.data.title);
         return item ? c.json(await view(item, jobs)) : c.json({ error: 'That is no longer in your list.' }, 404);
+      } catch (err) {
+        if (err instanceof SourceError) return c.json({ error: err.message }, 400);
+        throw err;
+      }
+    })
+    .post('/:id/split', async (c) => {
+      if (!json(c.req.header('content-type'))) return c.json({ error: BAD }, 415);
+      const id = c.req.param('id');
+      const parsed = SplitBody.safeParse(await c.req.json().catch(() => null));
+      if (!Id.safeParse(id).success || !parsed.success) return c.json({ error: BAD }, 400);
+      try {
+        const parts = await list.split(id, parsed.data.minutes, parsed.data.voice);
+        return c.json({ parts: await Promise.all(parts.map((p) => view(p, jobs))) }, 201);
       } catch (err) {
         if (err instanceof SourceError) return c.json({ error: err.message }, 400);
         throw err;

@@ -145,6 +145,7 @@ export async function walkDetail(id: string, jobs: Jobs, port: number) {
     leftOut: info?.leftOut ?? [],
     /** List items this walk took out of the waiting list. */
     closed: record.request.items?.length ?? 0,
+    series: meta.series ?? null,
     pieces: meta.pieces ?? [],
     skipped: meta.skipped ?? [],
     share: url ? { url, qr: await qrDataUrl(url) } : null,

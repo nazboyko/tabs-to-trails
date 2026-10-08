@@ -32,6 +32,19 @@ export interface BuildRequest {
   items?: string[];
   /** Minutes of silence at the end, after the reading (0-3); none for "Everything". */
   quietMinutes?: number;
+  /** A walk that is one part of a series: its place in it and the read's own title. */
+  series?: Series;
+}
+
+export interface Series {
+  part: number;
+  parts: number;
+  title: string;
+}
+
+/** Said at the end of every part but the last. */
+export function nextPartText(series: Series | undefined): string {
+  return series && series.part < series.parts ? ` Part ${series.part + 1} is waiting for your next walk.` : '';
 }
 
 /** The quiet ending this request gets, in minutes. */
@@ -158,6 +171,8 @@ export interface Meta {
   skipped?: Skipped[];
   /** Seconds of silence at the end (a quiet ending); 0 or missing for none. */
   quietSeconds?: number;
+  /** This walk's place in a series. */
+  series?: { part: number; parts: number };
 }
 
 export interface MetaPiece {
@@ -179,12 +194,15 @@ export function quietText(minutes: number): string {
   return `That's the reading. I'm going quiet now. Keep walking for another ${minutes === 1 ? 'minute' : `${minutes} minutes`}.`;
 }
 
-export function outroText(quietMinutes: number): string {
-  return quietMinutes ? QUIET_OUTRO : OUTRO_TEXT;
+export function outroText(quietMinutes: number, series?: Series): string {
+  return (quietMinutes ? QUIET_OUTRO : OUTRO_TEXT) + nextPartText(series);
 }
 
-export function introText(minutes: number, title: string, halfway = true, pieces: string[] = []): string {
+export function introText(minutes: number, title: string, halfway = true, pieces: string[] = [], series?: Series): string {
   const cue = halfway ? " I'll tell you when you're halfway." : '';
+  // "an 18-minute", "an 8-minute", "an 11-minute": the article follows how the number is said.
+  const article = minutes === 11 || minutes === 18 || String(minutes).startsWith('8') ? 'an' : 'a';
+  if (series) return `This is part ${series.part} of ${series.parts} of ${series.title}, ${article} ${minutes}-minute Walk Edition. Start walking.${cue}`;
   if (pieces.length > 1) return `This is your ${minutes}-minute Walk Edition, with ${pieces.length} pieces. First: ${pieces[0]}. Start walking.${cue}`;
   return `This is your ${minutes}-minute Walk Edition of ${title}. Start walking.${cue}`;
 }
@@ -370,6 +388,7 @@ async function stageRewrite(
   plan: Plan,
   onProgress: OnProgress,
   signal?: AbortSignal,
+  series?: Series,
 ): Promise<Script> {
   const saved = await readJson<Script>(dir, 'script.json');
   if (saved) return saved;
@@ -390,6 +409,8 @@ async function stageRewrite(
     await writeJson(dir, 'rewrite.json', state);
   }
   const done = sections.map((s) => ({ ...state.sections[s.id]!, ...(s.piece !== undefined ? { piece: s.piece } : {}) }));
+  // A series asks its question once, at the end of the last part.
+  if (series && series.part < series.parts && !state.question) state.question = { text: null, seconds: 0 };
   if (!state.question) {
     onProgress({ stage: 'rewrite', state: 'active', done: total, total, detail: 'A question for the last stretch' });
     const asked = questionSource(sections, done);
@@ -432,7 +453,7 @@ async function stageVoice(
   const quiet = quietMinutesOf(req);
   const app: [string, string][] = [
     ['halfway', HALFWAY_TEXT],
-    ['outro', outroText(quiet)],
+    ['outro', outroText(quiet, req.series)],
   ];
   if (quiet) app.push(['quiet', quietText(quiet)]);
   if (script.question) app.push(['question', `${QUESTION_LEAD} ${script.question}`]);
@@ -641,7 +662,7 @@ async function stagePack(
   const minutes = Math.max(1, Math.round(lengths.total / SAMPLE_RATE / 60));
   const first = voice.sections[script.sections[0]!.id]!;
   const hasHalfway = script.sections.length > 1 || first.boundaries.length > 0;
-  const intro = introText(minutes, info.title, hasHalfway, pieceTitles);
+  const intro = introText(minutes, info.title, hasHalfway, pieceTitles, req.series);
   await voiceApp('intro', intro);
   // About a quarter of the walk is left at the second cue; the number is checked once the cue is placed.
   const longWalk = lengths.threeQuarter > 0;
@@ -799,7 +820,7 @@ async function stagePack(
     ...(threeQuarterSeconds !== null && threeQuarter ? [`[${clock(threeQuarterSeconds)}] The app, after a chime: ${threeQuarter}`, ''] : []),
     ...(script.question ? [`The app, a question for the last stretch: ${QUESTION_LEAD} ${script.question}`, ''] : []),
     ...(quietAt !== null ? [`The app: ${quietText(quiet)}`, '', `[${clock(quietAt)}] ${quiet === 1 ? 'One minute' : `${quiet} minutes`} of quiet, then a chime.`, ''] : []),
-    `The app: ${outroText(quiet)}`,
+    `The app: ${outroText(quiet, req.series)}`,
     '',
   ].join('\n');
   await writeFileAtomic(path.join(dir, 'script.txt'), scriptText);
@@ -849,6 +870,7 @@ async function stagePack(
     pieces,
     skipped: info.skipped ?? [],
     quietSeconds: quietAt === null ? 0 : quiet * 60,
+    ...(req.series ? { series: { part: req.series.part, parts: req.series.parts } } : {}),
   };
   await writeJson(dir, 'meta.json', meta);
 
@@ -873,7 +895,7 @@ export async function runPipeline(
   const { plan, planSections } = await stagePlan(dir, req, info, sections);
   onProgress({ stage: 'plan', state: 'done', detail: planDetail(plan) });
 
-  const script = await stageRewrite(dir, info, planSections, plan, onProgress, signal);
+  const script = await stageRewrite(dir, info, planSections, plan, onProgress, signal, req.series);
   onProgress({ stage: 'rewrite', state: 'done', done: planSections.length, total: planSections.length });
 
   let voice = await stageVoice(dir, req, info, script, onProgress, signal);

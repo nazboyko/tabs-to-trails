@@ -14,7 +14,9 @@ import { pieceSections, readPieces, sourceLabel, type Piece } from '../source/pi
 import { SourceError, type SourceDoc } from '../source/types.js';
 import { isWalkId, newId, readJson, writeFileAtomic, writeJson } from '../walks/store.js';
 import { checked, DEFAULT_WPM, linkKey, MAX_CHECKS, ordered, reorder, unreadable, type ListItem } from './items.js';
-import { previewFrom, type WalkPreview } from './preview.js';
+import { previewFrom, SERIES_FACTOR, seriesFor, type WalkPreview } from './preview.js';
+import { partMarkdown } from './series.js';
+import { estimateMinutes as minutesOf } from './items.js';
 
 export type ReadFn = (input: SourceInput, signal?: AbortSignal) => Promise<SourceDoc>;
 
@@ -204,7 +206,59 @@ export class WalkList {
   async preview(ids: string[], minutes: number | null, voice: VoiceKey, quietMinutes = 0): Promise<WalkPreview> {
     const pieces = await this.pieces(ids);
     const wpm = await listWpm(voice, charsPerWord(walkSource(pieces, []).sections));
-    return previewFrom(pieces, ids, minutes, wpm, quietMinutes);
+    const preview = previewFrom(pieces, ids, minutes, wpm, quietMinutes);
+    // A piece much longer than the walk can become a series instead of being squeezed.
+    if (minutes !== null) {
+      for (const [i, p] of preview.pieces.entries()) {
+        const item = await this.get(ids[i]!);
+        if (item?.parts || p.fullMinutes <= minutes * SERIES_FACTOR) continue;
+        const parts = seriesFor(pieces[i]!, minutes, wpm).length;
+        if (parts > 1) p.splitParts = parts;
+      }
+    }
+    return preview;
+  }
+
+  /**
+   * Replaces one row with its parts, in its place: "Part 1 of 3", "Part 2 of
+   * 3"... each saved as its own source, so each is built as its own walk.
+   */
+  async split(id: string, minutes: number, voice: VoiceKey): Promise<ListItem[]> {
+    const item = await this.get(id);
+    if (!item?.doc || item.parts) throw new SourceError('That one cannot be split.', false);
+    const [piece] = await this.pieces([id]);
+    const sections = walkSource([piece!], []).sections;
+    const wpm = await listWpm(voice, charsPerWord(sections));
+    const parts = seriesFor(piece!, minutes, wpm);
+    if (parts.length < 2) throw new SourceError('That one fits in one walk.', false);
+    const made: ListItem[] = [];
+    for (const [i, part] of parts.entries()) {
+      const n = i + 1;
+      const next: ListItem = {
+        ...item,
+        id: newId(),
+        words: part.reduce((w, s) => w + s.words, 0),
+        minutes: minutesOf(part, wpm),
+        status: 'ready',
+        walkId: undefined,
+        seriesId: item.id,
+        part: n,
+        parts: parts.length,
+        // The part's own name, for the walk it becomes and for the bridges of a playlist.
+        doc: { ...item.doc, title: `${item.title}, part ${n} of ${parts.length}` },
+      };
+      await this.put(next);
+      await writeFileAtomic(path.join(this.dir(next.id), 'source.md'), partMarkdown(part));
+      made.push(next);
+    }
+    await this.serial(async () => {
+      const order = await this.order();
+      const at = order.indexOf(id);
+      const ids = made.map((m) => m.id);
+      await this.writeOrder(at < 0 ? [...order, ...ids] : [...order.slice(0, at), ...ids, ...order.slice(at + 1)]);
+      await fs.rm(this.dir(id), { recursive: true, force: true });
+    });
+    return made;
   }
 
   /** On start: rows that were being checked when the process stopped are checked again. */

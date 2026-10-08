@@ -89,10 +89,15 @@ export function buildRoutes(jobs: Jobs, list: WalkList) {
         }
         const ready = await health();
         if (!ready.ready) return c.json({ error: 'Something still needs to be installed.', setup: true }, 503);
+        // One part of a series on its own is walked as that part: its intro says so, its end points to the next.
+        const only = items.length === 1 ? await list.get(items[0]!) : null;
+        const series = only?.part && only.parts ? { part: only.part, parts: only.parts, title: only.title } : undefined;
         // The saved Markdown is copied into the walk, so the build needs no network and later list edits cannot change it.
-        const record = await jobs.create({ minutes, voice, items, quietMinutes }, async (dir) => {
+        const record = await jobs.create({ minutes, voice, items, quietMinutes, series }, async (dir) => {
           const saved = await Promise.all(items.map((id, i) => list.copyInto(id, dir, `saved-${i + 1}.md`)));
-          return saved.length === 1 ? { source: saved[0]!, minutes, voice, items, quietMinutes } : { sources: saved, minutes, voice, items, quietMinutes };
+          return saved.length === 1
+            ? { source: saved[0]!, minutes, voice, items, quietMinutes, series }
+            : { sources: saved, minutes, voice, items, quietMinutes };
         });
         await list.markInWalk(items, record.id);
         return c.json({ id: record.id }, 202);
