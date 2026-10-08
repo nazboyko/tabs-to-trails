@@ -143,8 +143,12 @@ function Phone() {
       return;
     }
     // Inside the tap: unlock playback, since the real start comes after the download.
-    a.src = silentWav();
-    void a.play().then(() => a.pause(), () => undefined);
+    // A fast download can start the walk before this resolves; only the silence is paused.
+    const silent = silentWav();
+    a.src = silent;
+    void a.play().then(() => {
+      if (a.src === silent) a.pause();
+    }, () => undefined);
     setView('loading');
     setReceived(0);
     const controller = new AbortController();
