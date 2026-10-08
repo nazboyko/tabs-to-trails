@@ -32,6 +32,8 @@ export const BuildBody = z
       .optional(),
     minutes: z.union([z.literal(10), z.literal(20), z.literal(30), z.literal(45), z.literal(60), z.null()]),
     voice: z.enum(VOICE_KEYS),
+    /** A quiet ending, in minutes; ignored for "Everything". */
+    quietMinutes: z.union([z.literal(0), z.literal(1), z.literal(2), z.literal(3)]).optional(),
   })
   .refine((b) => (b.source ? 1 : 0) + (b.sources ? 1 : 0) + (b.items ? 1 : 0) === 1);
 
@@ -79,6 +81,7 @@ export function buildRoutes(jobs: Jobs, list: WalkList) {
       const parsed = BuildBody.safeParse(await c.req.json().catch(() => null));
       if (!parsed.success) return c.json({ error: 'That request is missing something. Reload the page and try again.' }, 400);
       const { source, sources, items, minutes, voice } = parsed.data;
+      const quietMinutes = minutes === null ? 0 : (parsed.data.quietMinutes ?? 0);
       if (items) {
         for (const id of items) {
           const problem = await notReady(list, jobs, id);
@@ -87,9 +90,9 @@ export function buildRoutes(jobs: Jobs, list: WalkList) {
         const ready = await health();
         if (!ready.ready) return c.json({ error: 'Something still needs to be installed.', setup: true }, 503);
         // The saved Markdown is copied into the walk, so the build needs no network and later list edits cannot change it.
-        const record = await jobs.create({ minutes, voice, items }, async (dir) => {
+        const record = await jobs.create({ minutes, voice, items, quietMinutes }, async (dir) => {
           const saved = await Promise.all(items.map((id, i) => list.copyInto(id, dir, `saved-${i + 1}.md`)));
-          return saved.length === 1 ? { source: saved[0]!, minutes, voice, items } : { sources: saved, minutes, voice, items };
+          return saved.length === 1 ? { source: saved[0]!, minutes, voice, items, quietMinutes } : { sources: saved, minutes, voice, items, quietMinutes };
         });
         await list.markInWalk(items, record.id);
         return c.json({ id: record.id }, 202);
@@ -100,7 +103,7 @@ export function buildRoutes(jobs: Jobs, list: WalkList) {
       if (problem) return c.json({ error: problem.message, suggestPaste: problem.suggestPaste }, 400);
       const h = await health();
       if (!h.ready) return c.json({ error: 'Something still needs to be installed.', setup: true }, 503);
-      const record = await jobs.create(inputs.length === 1 ? { source: inputs[0]!, minutes, voice } : { sources: inputs, minutes, voice });
+      const record = await jobs.create(inputs.length === 1 ? { source: inputs[0]!, minutes, voice, quietMinutes } : { sources: inputs, minutes, voice, quietMinutes });
       return c.json({ id: record.id }, 202);
     })
     .get('/:id/events', async (c) => {

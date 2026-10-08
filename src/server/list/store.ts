@@ -201,10 +201,10 @@ export class WalkList {
   }
 
   /** The panel's plan for these items and this length, at the pace minutes are estimated with. */
-  async preview(ids: string[], minutes: number | null, voice: VoiceKey): Promise<WalkPreview> {
+  async preview(ids: string[], minutes: number | null, voice: VoiceKey, quietMinutes = 0): Promise<WalkPreview> {
     const pieces = await this.pieces(ids);
     const wpm = await listWpm(voice, charsPerWord(walkSource(pieces, []).sections));
-    return previewFrom(pieces, ids, minutes, wpm);
+    return previewFrom(pieces, ids, minutes, wpm, quietMinutes);
   }
 
   /** On start: rows that were being checked when the process stopped are checked again. */

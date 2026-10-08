@@ -29,6 +29,13 @@ export interface BuildRequest {
   voice: VoiceKey;
   /** The walk-list items this walk was made from, in order. */
   items?: string[];
+  /** Minutes of silence at the end, after the reading (0-3); none for "Everything". */
+  quietMinutes?: number;
+}
+
+/** The quiet ending this request gets, in minutes. */
+export function quietMinutesOf(req: Pick<BuildRequest, 'minutes' | 'quietMinutes'>): number {
+  return req.minutes === null ? 0 : Math.max(0, Math.min(3, Math.round(req.quietMinutes ?? 0)));
 }
 
 /** Reads a source; one saved to the list comes from its copy in the walk folder, never the network. */
@@ -148,6 +155,8 @@ export interface Meta {
   pieces?: MetaPiece[];
   /** Sources of a playlist that could not be used. */
   skipped?: Skipped[];
+  /** Seconds of silence at the end (a quiet ending); 0 or missing for none. */
+  quietSeconds?: number;
 }
 
 export interface MetaPiece {
@@ -161,6 +170,17 @@ export interface MetaPiece {
 export const HALFWAY_TEXT = "You're halfway. If you're walking out and back, turn around now.";
 export const OUTRO_TEXT = "That's the end. You should be almost home.";
 export const QUESTION_LEAD = 'Here is something to think about on the way back.';
+/** The last line after a quiet ending: the reading already said goodbye. */
+export const QUIET_OUTRO = 'You should be almost home.';
+
+/** Said once the reading is over, before the silence. */
+export function quietText(minutes: number): string {
+  return `That's the reading. I'm going quiet now. Keep walking for another ${minutes === 1 ? 'minute' : `${minutes} minutes`}.`;
+}
+
+export function outroText(quietMinutes: number): string {
+  return quietMinutes ? QUIET_OUTRO : OUTRO_TEXT;
+}
 
 export function introText(minutes: number, title: string, halfway = true, pieces: string[] = []): string {
   const cue = halfway ? " I'll tell you when you're halfway." : '';
@@ -217,14 +237,25 @@ export function walkSource(pieces: Piece[], skipped: Skipped[]): { info: SourceI
   return { info, sections };
 }
 
-/** The first plan of a walk, before grouping and importance: the preview on the home screen shows this same plan. */
-export function firstPlan(info: SourceInfo, sections: Section[], minutes: number | null, wpm: number): { plan: Plan; input: PlanInput } {
+/**
+ * The first plan of a walk, before grouping and importance: the preview on
+ * the home screen shows this same plan. A quiet ending is fixed time, so the
+ * target stays the whole walk and the reading ends that much earlier.
+ */
+export function firstPlan(
+  info: SourceInfo,
+  sections: Section[],
+  minutes: number | null,
+  wpm: number,
+  quietMinutes = 0,
+): { plan: Plan; input: PlanInput } {
   const targetSeconds = minutes === null ? null : minutes * 60;
-  const input = { sections, targetSeconds, wpm, fixedSeconds: fixedSecondsEstimate(info, wpm, targetSeconds) };
+  const quiet = minutes === null ? 0 : quietMinutes;
+  const input = { sections, targetSeconds, wpm, fixedSeconds: fixedSecondsEstimate(info, wpm, targetSeconds, quiet) };
   return { plan: planWalk(input), input };
 }
 
-function fixedSecondsEstimate(info: SourceInfo, wpm: number, targetSeconds: number | null): number {
+export function fixedSecondsEstimate(info: SourceInfo, wpm: number, targetSeconds: number | null, quietMinutes = 0): number {
   const pieces = info.pieces?.map((p) => p.title) ?? [];
   const words = countWords(introText(20, info.title, true, pieces) + HALFWAY_TEXT + QUESTION_LEAD + OUTRO_TEXT) + 18;
   const pauses =
@@ -236,6 +267,12 @@ function fixedSecondsEstimate(info: SourceInfo, wpm: number, targetSeconds: numb
   }
   if (targetSeconds !== null && wantsThreeQuarter(targetSeconds)) {
     seconds += wordsToSeconds(countWords(threeQuarterText(15)), wpm) + PAUSE.beforeChime + PAUSE.afterChime + PAUSE.afterCue + 1.2;
+  }
+  // A quiet ending: its line, the silence itself, and one more chime before the shorter sign-off.
+  if (quietMinutes) {
+    seconds +=
+      wordsToSeconds(countWords(quietText(quietMinutes)) - countWords(OUTRO_TEXT) + countWords(QUIET_OUTRO), wpm) +
+      quietMinutes * 60 + 1.2 + PAUSE.afterChime + PAUSE.beforeOutro;
   }
   return seconds;
 }
@@ -274,7 +311,7 @@ async function stagePlan(dir: string, req: BuildRequest, info: SourceInfo, secti
   if (saved && savedSections) return { plan: saved, planSections: savedSections };
   const cal = await calibration(req.voice);
   const wpm = effectiveWpm(cal, charsPerWord(sections));
-  const first = firstPlan(info, sections, req.minutes, wpm);
+  const first = firstPlan(info, sections, req.minutes, wpm, quietMinutesOf(req));
   const input = first.input;
   let plan = first.plan;
   let planSections = sections;
@@ -391,10 +428,12 @@ async function stageVoice(
     state.seconds += (Date.now() - started) / 1000;
     await writeJson(dir, 'voice.json', state);
   }
+  const quiet = quietMinutesOf(req);
   const app: [string, string][] = [
     ['halfway', HALFWAY_TEXT],
-    ['outro', OUTRO_TEXT],
+    ['outro', outroText(quiet)],
   ];
+  if (quiet) app.push(['quiet', quietText(quiet)]);
   if (script.question) app.push(['question', `${QUESTION_LEAD} ${script.question}`]);
   (info.pieces ?? []).forEach((p, piece) => {
     if (piece > 0) app.push([`bridge-${piece}`, bridgeText(p.title)]);
@@ -416,8 +455,13 @@ function cueBlockLength(chime: number, spoken: number): number {
   return toSamples(PAUSE.beforeChime) + chime + toSamples(PAUSE.afterChime) + spoken + toSamples(PAUSE.afterCue);
 }
 
+/** The quiet line, the silence and the chime that ends it. */
+function quietLength(voice: VoiceState, chime: number, quietMinutes: number): number {
+  return (voice.app.quiet?.samples ?? 0) + toSamples(quietMinutes * 60) + chime + toSamples(PAUSE.afterChime);
+}
+
 /** Lengths in samples of everything around the content, from what is already voiced. */
-function layout(voice: VoiceState, script: Script, chime: number, info: SourceInfo, wpm: number) {
+function layout(voice: VoiceState, script: Script, chime: number, info: SourceInfo, wpm: number, quietMinutes = 0) {
   let content = 0;
   script.sections.forEach((s, i) => {
     content += voice.sections[s.id]?.samples ?? 0;
@@ -430,6 +474,7 @@ function layout(voice: VoiceState, script: Script, chime: number, info: SourceIn
   const after =
     toSamples(PAUSE.beforeChime) + chime + toSamples(PAUSE.afterChime) +
     (voice.app.question ? voice.app.question.samples + toSamples(PAUSE.beforeOutro) : 0) +
+    (quietMinutes ? quietLength(voice, chime, quietMinutes) : 0) +
     (voice.app.outro?.samples ?? 0) + toSamples(PAUSE.tail);
   const pieces = info.pieces?.map((p) => p.title) ?? [];
   const intro = toSamples(wordsToSeconds(countWords(introText(20, info.title, true, pieces)), wpm) + PAUSE.afterIntro);
@@ -469,6 +514,7 @@ async function stageFit(
   voice: VoiceState,
   onProgress: OnProgress,
   signal?: AbortSignal,
+  quietMinutes = 0,
 ): Promise<{ script: Script; fit: FitState }> {
   let fit = await readJson<FitState>(dir, 'fit.json');
   if (fit?.done) {
@@ -478,7 +524,7 @@ async function stageFit(
   }
   if (!fit) {
     const chime = await makeChime();
-    const beforeSeconds = layout(voice, script, chime.length, info, plan.wpm).total / SAMPLE_RATE;
+    const beforeSeconds = layout(voice, script, chime.length, info, plan.wpm, quietMinutes).total / SAMPLE_RATE;
     const fitSections: FitSection[] = script.sections.map((s, i) => ({
       id: s.id,
       treatment: s.treatment,
@@ -546,6 +592,8 @@ async function stagePack(
   const chime = await makeChime();
   const halfwayAudio = await loadSamples(dir, voice.app.halfway!);
   const outroAudio = await loadSamples(dir, voice.app.outro!);
+  const quiet = quietMinutesOf(req);
+  const quietAudio = quiet && voice.app.quiet ? await loadSamples(dir, voice.app.quiet) : null;
   const questionAudio = voice.app.question ? await loadSamples(dir, voice.app.question) : null;
   const pieceTitles = info.pieces?.map((p) => p.title) ?? [];
   const playlist = pieceTitles.length > 1;
@@ -558,7 +606,7 @@ async function stagePack(
   };
 
   // The intro names the length, so it is voiced once the rest is measured.
-  let lengths = layout(voice, script, chime.length, info, plan.wpm);
+  let lengths = layout(voice, script, chime.length, info, plan.wpm, quietMinutesOf(req));
   const minutes = Math.max(1, Math.round(lengths.total / SAMPLE_RATE / 60));
   const first = voice.sections[script.sections[0]!.id]!;
   const hasHalfway = script.sections.length > 1 || first.boundaries.length > 0;
@@ -616,7 +664,7 @@ async function stagePack(
     if (checked !== threeQuarter) {
       threeQuarter = checked;
       await voiceApp('threequarter', threeQuarter);
-      lengths = layout(voice, script, chime.length, info, plan.wpm);
+      lengths = layout(voice, script, chime.length, info, plan.wpm, quietMinutesOf(req));
       spots = place();
     }
   }
@@ -659,6 +707,15 @@ async function stagePack(
     push(concatAudio([chime, silence(PAUSE.afterChime), questionAudio]), { kind: 'app', role: 'question', label: 'A question for the last stretch' });
     push(silence(PAUSE.beforeOutro));
   } else {
+    push(chime);
+    push(silence(PAUSE.afterChime));
+  }
+  let quietAt: number | null = null;
+  if (quietAudio) {
+    // The reading is over: the line, the minutes of silence, then the chime that says the walk is too.
+    push(quietAudio, { kind: 'app', role: 'quiet', label: 'Going quiet' });
+    quietAt = at / SAMPLE_RATE;
+    push(silence(quiet * 60), { kind: 'app', role: 'silence', label: 'Quiet' });
     push(chime);
     push(silence(PAUSE.afterChime));
   }
@@ -705,7 +762,8 @@ async function stagePack(
     ...(halfwaySeconds !== null ? [`[${clock(halfwaySeconds)}] The app, after a chime: ${HALFWAY_TEXT}`, ''] : []),
     ...(threeQuarterSeconds !== null && threeQuarter ? [`[${clock(threeQuarterSeconds)}] The app, after a chime: ${threeQuarter}`, ''] : []),
     ...(script.question ? [`The app, a question for the last stretch: ${QUESTION_LEAD} ${script.question}`, ''] : []),
-    `The app: ${OUTRO_TEXT}`,
+    ...(quietAt !== null ? [`The app: ${quietText(quiet)}`, '', `[${clock(quietAt)}] ${quiet === 1 ? 'One minute' : `${quiet} minutes`} of quiet, then a chime.`, ''] : []),
+    `The app: ${outroText(quiet)}`,
     '',
   ].join('\n');
   await writeFileAtomic(path.join(dir, 'script.txt'), scriptText);
@@ -754,6 +812,7 @@ async function stagePack(
     threeQuarterSeconds: threeQuarterSeconds === null ? null : Math.round(threeQuarterSeconds * 100) / 100,
     pieces,
     skipped: info.skipped ?? [],
+    quietSeconds: quietAt === null ? 0 : quiet * 60,
   };
   await writeJson(dir, 'meta.json', meta);
 
@@ -782,7 +841,7 @@ export async function runPipeline(
   onProgress({ stage: 'rewrite', state: 'done', done: planSections.length, total: planSections.length });
 
   let voice = await stageVoice(dir, req, info, script, onProgress, signal);
-  const fitted = await stageFit(dir, info, planSections, plan, script, voice, onProgress, signal);
+  const fitted = await stageFit(dir, info, planSections, plan, script, voice, onProgress, signal, quietMinutesOf(req));
   if (fitted.script !== script) voice = await stageVoice(dir, req, info, fitted.script, onProgress, signal);
   return stagePack(id, dir, req, info, plan, fitted.script, voice, createdAt, fitted.fit, onProgress, signal);
 }

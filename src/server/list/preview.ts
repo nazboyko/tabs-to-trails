@@ -24,13 +24,16 @@ export interface WalkPreview {
   minutes: number;
   targetMinutes: number | null;
   mode: 'full' | 'condensed';
+  /** Minutes of silence at the end. */
+  quietMinutes: number;
 }
 
 const round = (m: number) => Math.round(m * 10) / 10;
 
-export function previewFrom(pieces: Piece[], ids: string[], minutes: number | null, wpm: number): WalkPreview {
+export function previewFrom(pieces: Piece[], ids: string[], minutes: number | null, wpm: number, quietMinutes = 0): WalkPreview {
   const { info, sections } = walkSource(pieces, []);
-  const { plan } = firstPlan(info, sections, minutes, wpm);
+  const quiet = minutes === null ? 0 : quietMinutes;
+  const { plan } = firstPlan(info, sections, minutes, wpm, quiet);
   const seconds = (words: number, count: number) => wordsToSeconds(words, wpm) + Math.max(0, count - 1) * SECTION_GAP;
   const out = pieces.map((p, i) => {
     const own = plan.sections.filter((s) => (s.piece ?? 0) === i);
@@ -46,5 +49,5 @@ export function previewFrom(pieces: Piece[], ids: string[], minutes: number | nu
   });
   const content = plan.sections.reduce((n, s) => n + s.targetWords, 0);
   const total = plan.mode === 'full' ? plan.fullSeconds : wordsToSeconds(content, wpm) + plan.fixedSeconds;
-  return { pieces: out, minutes: round(total / 60), targetMinutes: minutes, mode: plan.mode };
+  return { pieces: out, minutes: round(total / 60), targetMinutes: minutes, mode: plan.mode, quietMinutes: quiet };
 }

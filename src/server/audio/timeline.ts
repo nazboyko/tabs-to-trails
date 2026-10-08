@@ -114,7 +114,7 @@ export interface Segment {
   sectionId?: string;
   /** Piece of a multi-source walk. */
   piece?: number;
-  role?: 'intro' | 'halfway' | 'threequarter' | 'bridge' | 'question' | 'outro';
+  role?: 'intro' | 'halfway' | 'threequarter' | 'bridge' | 'question' | 'quiet' | 'silence' | 'outro';
   start: number;
   end: number;
 }

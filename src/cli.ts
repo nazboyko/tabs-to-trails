@@ -9,12 +9,13 @@ import { disposeVoiceModel } from './server/audio/kokoro.js';
 import { Jobs } from './server/walks/jobs.js';
 import { walkDir } from './server/walks/store.js';
 
-const USAGE = `Usage: npm run walk -- <url-or-file> [more, up to ${MAX_PIECES}] [--minutes 10|20|30|45|60|whole] [--voice ${VOICE_KEYS.join('|')}]`;
+const USAGE = `Usage: npm run walk -- <url-or-file> [more, up to ${MAX_PIECES}] [--minutes 10|20|30|45|60|whole] [--quiet 0|1|2|3] [--voice ${VOICE_KEYS.join('|')}]`;
 
 function parseArgs(argv: string[]): BuildRequest {
   const targets: string[] = [];
   let minutes: number | null = 20;
   let voice: VoiceKey = loadConfig().VOICE;
+  let quietMinutes = 0;
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i]!;
     if (a === '--minutes') {
@@ -22,6 +23,10 @@ function parseArgs(argv: string[]): BuildRequest {
       if (v === 'whole') minutes = null;
       else if (v && /^\d+$/.test(v) && Number(v) >= 1 && Number(v) <= 120) minutes = Number(v);
       else throw new Error(USAGE);
+    } else if (a === '--quiet') {
+      const v = argv[++i];
+      if (!v || !/^[0-3]$/.test(v)) throw new Error(USAGE);
+      quietMinutes = Number(v);
     } else if (a === '--voice') {
       const v = argv[++i] as VoiceKey | undefined;
       if (!v || !VOICE_KEYS.includes(v)) throw new Error(USAGE);
@@ -37,7 +42,7 @@ function parseArgs(argv: string[]): BuildRequest {
     fs.existsSync(target) ? { kind: 'file', name: path.basename(target), text: fs.readFileSync(target, 'utf8') } : { kind: 'url', url: target },
   );
   // Several sources make one playlist walk, read in the order given.
-  return sources.length === 1 ? { source: sources[0]!, minutes, voice } : { sources, minutes, voice };
+  return sources.length === 1 ? { source: sources[0]!, minutes, voice, quietMinutes } : { sources, minutes, voice, quietMinutes };
 }
 
 async function main() {

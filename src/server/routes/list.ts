@@ -24,6 +24,7 @@ export const PreviewBody = z.object({
   items: z.array(Id).min(1).max(MAX_PIECES),
   minutes: z.union([z.literal(10), z.literal(20), z.literal(30), z.literal(45), z.literal(60), z.null()]),
   voice: z.enum(VOICE_KEYS),
+  quietMinutes: z.union([z.literal(0), z.literal(1), z.literal(2), z.literal(3)]).optional(),
 });
 
 export type ItemView = Omit<ListItem, 'doc' | 'walkId' | 'checkedAt'>;
@@ -62,7 +63,8 @@ export function listRoutes(list: WalkList, jobs: Jobs) {
       const parsed = PreviewBody.safeParse(await c.req.json().catch(() => null));
       if (!parsed.success) return c.json({ error: BAD }, 400);
       try {
-        return c.json(await list.preview(parsed.data.items, parsed.data.minutes, parsed.data.voice));
+        const { items, minutes, voice, quietMinutes } = parsed.data;
+        return c.json(await list.preview(items, minutes, voice, minutes === null ? 0 : (quietMinutes ?? 0)));
       } catch (err) {
         if (err instanceof SourceError) return c.json({ error: err.message }, 400);
         throw err;
