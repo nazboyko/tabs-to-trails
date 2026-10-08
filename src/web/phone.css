@@ -311,3 +311,80 @@
   font-size: 14px;
   color: var(--forest-text);
 }
+
+/* "Find my place": closed until asked for, as quiet as the rest of the playing screen. */
+.walking .find-place {
+  align-self: center;
+  min-height: 44px;
+  color: var(--forest-text);
+}
+
+.walking .find {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.walking .find-sections {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border-top: 1px solid rgba(245, 240, 230, 0.18);
+}
+
+.walking .find-sections button {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  min-height: 48px;
+  padding: 10px 0;
+  border: 0;
+  border-bottom: 1px solid rgba(245, 240, 230, 0.18);
+  background: transparent;
+  color: var(--forest-text);
+  font-size: 16px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.walking .find-sections button[aria-current='true'] {
+  font-weight: 700;
+}
+
+.walking .find-sections .mono {
+  flex: none;
+  color: var(--forest-muted);
+}
+
+.walking .find-text {
+  max-height: 46vh;
+  overflow-y: auto;
+  padding: 4px 2px;
+  font-size: 17px;
+  line-height: 1.6;
+  color: var(--forest-muted);
+}
+
+.walking .find-text a {
+  color: inherit;
+  text-decoration: none;
+  border-radius: 4px;
+  padding: 1px 2px;
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+}
+
+.walking .find-text a::after {
+  content: ' ';
+}
+
+.walking .find-text a.app {
+  color: #f5b48a;
+}
+
+.walking .find-text a.on {
+  color: var(--forest-text);
+  background: rgba(245, 240, 230, 0.14);
+  box-shadow: inset 0 -2px 0 var(--forest-text);
+}

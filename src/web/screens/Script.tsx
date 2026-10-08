@@ -1,8 +1,9 @@
-import { Fragment, useEffect, useRef, useState } from 'react';
-import { api, type AppLine, type ScriptSection, type WalkDetail } from '../api';
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
+import { api, type AppLine, type ScriptSection, type TimedLine, type Timings, type WalkDetail } from '../api';
 import { Badge, ScreenTitle } from '../common';
 import { clock } from '../format';
-import { Back, CodeIcon, Notice, TableIcon } from '../icons';
+import { Back, CodeIcon, Notice, Pause, PlayFilled, TableIcon } from '../icons';
+import { lineAt, stamp } from '../readalong';
 import { onLink } from '../router';
 
 type ReadyDetail = Extract<WalkDetail, { ready: true }>;
@@ -106,14 +107,106 @@ function scriptAsText(d: ReadyDetail, items: Item[], cues: Cue[]): string {
   return lines.join('\n');
 }
 
+const reducedMotion = () => window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
+
+/**
+ * The walk's audio on this screen: what is playing, the line being spoken,
+ * and whether the page follows the voice (it stops when the person scrolls).
+ */
+function useVoice(id: string, lines: TimedLine[]) {
+  const audio = useRef<HTMLAudioElement | null>(null);
+  const [now, setNow] = useState(0);
+  const [length, setLength] = useState(0);
+  const [playing, setPlaying] = useState(false);
+  const [following, setFollowing] = useState(true);
+  // Scroll events until this time are the page's own, following the voice.
+  const ownScrollUntil = useRef(0);
+
+  useEffect(() => {
+    const a = new Audio(`/api/walks/${id}/audio?download=0`);
+    a.preload = 'metadata';
+    a.addEventListener('timeupdate', () => setNow(a.currentTime));
+    a.addEventListener('loadedmetadata', () => setLength(a.duration));
+    a.addEventListener('play', () => setPlaying(true));
+    a.addEventListener('pause', () => setPlaying(false));
+    a.addEventListener('ended', () => setPlaying(false));
+    audio.current = a;
+    return () => {
+      a.pause();
+      audio.current = null;
+    };
+  }, [id]);
+
+  // A smooth highlight while playing; timeupdate alone moves only four times a second.
+  useEffect(() => {
+    if (!playing) return;
+    let frame = 0;
+    const tick = () => {
+      if (audio.current) setNow(audio.current.currentTime);
+      frame = requestAnimationFrame(tick);
+    };
+    frame = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(frame);
+  }, [playing]);
+
+  const current = useMemo(() => (playing || now > 0 ? lineAt(lines, now) : -1), [lines, now, playing]);
+
+  useEffect(() => {
+    if (!playing || !following || current < 0) return;
+    const el = document.querySelector(`[data-line="${current}"]`);
+    if (!el) return;
+    ownScrollUntil.current = Date.now() + 900;
+    el.scrollIntoView({ block: 'center', behavior: reducedMotion() ? 'auto' : 'smooth' });
+  }, [current, playing, following]);
+
+  useEffect(() => {
+    if (!playing) return;
+    const away = () => {
+      if (Date.now() > ownScrollUntil.current) setFollowing(false);
+    };
+    window.addEventListener('scroll', away, { passive: true });
+    return () => window.removeEventListener('scroll', away);
+  }, [playing]);
+
+  const playFrom = (t: number) => {
+    const a = audio.current;
+    if (!a) return;
+    a.currentTime = t;
+    setNow(t);
+    setFollowing(true);
+    void a.play().catch(() => setPlaying(false));
+  };
+  const toggle = () => {
+    const a = audio.current;
+    if (!a) return;
+    if (a.paused) {
+      setFollowing(true);
+      void a.play().catch(() => setPlaying(false));
+    } else a.pause();
+  };
+  const skip = (delta: number) => {
+    const a = audio.current;
+    if (!a) return;
+    a.currentTime = Math.min(Math.max(0, a.currentTime + delta), a.duration || a.currentTime + delta);
+    setNow(a.currentTime);
+  };
+  const backToVoice = () => setFollowing(true);
+  return { now, length, playing, following, current, playFrom, toggle, skip, backToVoice };
+}
+
 export function Script({ id }: { id: string }) {
   const [detail, setDetail] = useState<WalkDetail | null>(null);
+  const [timings, setTimings] = useState<Timings | null>(null);
   const [failed, setFailed] = useState(false);
   const [copied, setCopied] = useState(false);
   const timer = useRef<number | undefined>(undefined);
+  const lines = timings?.lines ?? [];
+  const voice = useVoice(id, lines);
 
   useEffect(() => {
     api.walk(id).then(setDetail, () => setFailed(true));
+    // Without timings the script still reads; it just cannot follow the voice.
+    api.timings(id).then(setTimings, () => setTimings(null));
     return () => window.clearTimeout(timer.current);
   }, [id]);
 
@@ -174,6 +267,71 @@ export function Script({ id }: { id: string }) {
     { kind: 'app' as const, label: 'sign-off', line: d.app.outro, start: d.app.outro.start ?? d.meta.actualSeconds },
   ].sort((a, b) => a.start - b.start);
 
+  /** A sentence (or an app line) as a button that plays from where it starts. */
+  const spoken = (i: number, numbers: string[] = []) => {
+    const line = lines[i]!;
+    return (
+      <Fragment key={`l-${i}`}>
+        {/* A link to the sentence's time: a button would break the paragraph into blocks. */}
+        <a
+          href={`#t=${line.start.toFixed(1)}`}
+          className={`sentence${voice.current === i ? ' speaking' : ''}`}
+          data-line={i}
+          aria-current={voice.current === i ? 'true' : undefined}
+          onClick={(e) => {
+            e.preventDefault();
+            voice.playFrom(line.start);
+          }}
+        >
+          <Marked text={line.text} numbers={numbers} />
+        </a>{' '}
+      </Fragment>
+    );
+  };
+  /** The timed line of an app item, matched by when it plays. */
+  const appLine = (start: number) => lines.findIndex((l) => l.speaker === 'app' && Math.abs(l.start - start) < 0.6);
+  /** A section's text as timed sentences, with any cue that plays inside it in its place. */
+  const timedSection = (section: ScriptSection) => {
+    const own = lines.map((l, i) => (l.section === section.id ? i : -1)).filter((i) => i >= 0);
+    if (!own.length) return null;
+    const from = lines[own[0]!]!.start;
+    const to = lines[own.at(-1)!]!.end;
+    const inner = lines
+      .map((l, i) => (l.speaker === 'app' && (l.role === 'halfway' || l.role === 'threequarter') && l.start > from && l.start < to ? i : -1))
+      .filter((i) => i >= 0);
+    const order = [...own, ...inner].sort((a, b) => lines[a]!.start - lines[b]!.start);
+    const blocks: ({ kind: 'para'; lines: number[] } | { kind: 'cue'; line: number })[] = [];
+    for (const i of order) {
+      const line = lines[i]!;
+      const last = blocks.at(-1);
+      if (line.speaker === 'app') blocks.push({ kind: 'cue', line: i });
+      else if (last?.kind === 'para' && lines[last.lines[0]!]!.para === line.para) last.lines.push(i);
+      else blocks.push({ kind: 'para', lines: [i] });
+    }
+    return (
+      <>
+        <button type="button" className="link-button play-here" onClick={() => voice.playFrom(lines[own[0]!]!.start)}>
+          <PlayFilled /> Play from here
+        </button>
+        {blocks.map((b, k) =>
+          b.kind === 'cue' ? (
+            <div className="app-says" key={`cue-${k}`}>
+              <div className="head">
+                <span>The app · {lines[b.line]!.role === 'halfway' ? 'halfway cue, after a chime' : 'three-quarter cue, after a chime'}</span>
+                <span className="mono" style={{ fontWeight: 500 }}>
+                  {clock(lines[b.line]!.start)}
+                </span>
+              </div>
+              <p>{spoken(b.line)}</p>
+            </div>
+          ) : (
+            <p key={`p-${k}`}>{b.lines.map((i) => spoken(i, section.checkNumbers))}</p>
+          ),
+        )}
+      </>
+    );
+  };
+
   const copy = async () => {
     try {
       await navigator.clipboard.writeText(scriptAsText(d, items, cues));
@@ -224,7 +382,7 @@ export function Script({ id }: { id: string }) {
                   {clock(item.start)}
                 </span>
               </div>
-              <p>{item.line.text}</p>
+              <p>{appLine(item.start) >= 0 ? spoken(appLine(item.start)) : item.line.text}</p>
             </div>
           ) : (
             <details className="script-section" open key={item.section.id} id={item.section.id}>
@@ -257,7 +415,8 @@ export function Script({ id }: { id: string }) {
                   </div>
                 )}
                 {item.section.note && <div className="plain-note">{item.section.note}</div>}
-                {splitAtCues(item.section, cues).map((part, i) =>
+                {timedSection(item.section) ??
+                  splitAtCues(item.section, cues).map((part, i) =>
                   part.cue ? (
                     <div className="app-says" key={`cue-${i}`}>
                       <div className="head">
@@ -289,6 +448,29 @@ export function Script({ id }: { id: string }) {
       </div>
 
       <p className="small">Generated from the source text only. AI output can still contain mistakes. Review the script for anything important.</p>
+
+      {lines.length > 0 && (
+        <div className="player-bar" role="region" aria-label="Player">
+          <button type="button" className="skip" aria-label="Back 15 seconds" onClick={() => voice.skip(-15)}>
+            -15
+          </button>
+          <button type="button" className="main" aria-label={voice.playing ? 'Pause' : 'Play'} onClick={voice.toggle}>
+            {voice.playing ? <Pause color="#FFFCF5" /> : <PlayFilled color="#FFFCF5" />}
+          </button>
+          <button type="button" className="skip" aria-label="Forward 15 seconds" onClick={() => voice.skip(15)}>
+            +15
+          </button>
+          <span className="time mono">
+            {stamp(voice.now)} / {stamp(voice.length || d.meta.actualSeconds)}
+          </span>
+          {voice.playing && !voice.following && (
+            <button type="button" className="btn back-to-voice" onClick={voice.backToVoice}>
+              Back to the voice
+            </button>
+          )}
+          <span className="hint small">Click any sentence to play from there.</span>
+        </div>
+      )}
 
       <div className="row">
         <button type="button" className="btn" onClick={copy}>

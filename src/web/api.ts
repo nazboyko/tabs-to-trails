@@ -173,6 +173,23 @@ export interface ListItem {
   parts?: number;
 }
 
+/** One spoken sentence or app line, with where it plays in the file. */
+export interface TimedLine {
+  start: number;
+  end: number;
+  text: string;
+  speaker: 'source' | 'app';
+  section?: string;
+  para?: number;
+  role?: Segment['role'];
+}
+
+export interface Timings {
+  seconds: number;
+  sections: { id: string; label: string; start: number; piece?: number }[];
+  lines: TimedLine[];
+}
+
 export type SourcePayload =
   | { kind: 'url'; url: string }
   | { kind: 'text'; text: string; title?: string }
@@ -212,6 +229,7 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(sources.length === 1 ? { source: sources[0], minutes, voice } : { sources, minutes, voice }),
     }),
+  timings: (id: string) => call<Timings>(`/api/walks/${id}/timings`),
   list: () => call<{ items: ListItem[] }>('/api/list'),
   save: (sources: SourcePayload[]) =>
     call<{ added: ListItem[]; existing: ListItem[] }>('/api/list', {

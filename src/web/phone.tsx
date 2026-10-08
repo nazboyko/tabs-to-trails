@@ -5,6 +5,7 @@ import { StrictMode, useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { clock, megabytes } from './format';
 import { Back, Download, Logo, Pause, Play, PlayFilled, Tick } from './icons';
+import { lineAt } from './readalong';
 
 interface Info {
   title: string;
@@ -19,6 +20,32 @@ interface Info {
 }
 
 type View = 'home' | 'downloaded' | 'loading' | 'playing';
+
+interface Timings {
+  sections: { id: string; label: string; start: number }[];
+  lines: { start: number; end: number; text: string; speaker: 'source' | 'app'; section?: string; para?: number }[];
+}
+
+/** Where this walk was left, kept on the phone so a reopened page can offer to continue. */
+const placeKey = (id: string) => `t2t-place-${id}`;
+
+function savedPlace(id: string): number | null {
+  try {
+    const t = Number(localStorage.getItem(placeKey(id)));
+    return Number.isFinite(t) && t > 10 ? t : null;
+  } catch {
+    return null;
+  }
+}
+
+function keepPlace(id: string, t: number | null): void {
+  try {
+    if (t === null) localStorage.removeItem(placeKey(id));
+    else localStorage.setItem(placeKey(id), String(Math.round(t)));
+  } catch {
+    // Private windows can refuse storage; the walk plays from the start next time.
+  }
+}
 
 function walkFromLocation(): { id: string; token: string } {
   const path = location.pathname.match(/^\/w\/([a-f0-9]{12})/);
@@ -86,6 +113,11 @@ function Phone() {
   const [streaming, setStreaming] = useState(false);
   const [playing, setPlaying] = useState(false);
   const [now, setNow] = useState(0);
+  const [timings, setTimings] = useState<Timings | null>(null);
+  const [findOpen, setFindOpen] = useState(false);
+  const [resumeAt, setResumeAt] = useState<number | null>(() => savedPlace(walkFromLocation().id));
+  // Where to start once the audio can seek: a continue, or a jump chosen before it loaded.
+  const startAt = useRef<number | null>(null);
   const audio = useRef<HTMLAudioElement | null>(null);
   const blobUrl = useRef<string | null>(null);
   const loader = useRef<AbortController | null>(null);
@@ -98,6 +130,10 @@ function Phone() {
         if (!r.ok) throw new Error(body.error ?? 'This walk could not be opened.');
         setInfo(body as Info);
         document.title = `${(body as Info).title} · Tabs to Trails`;
+        // Fetched now, on the home Wi-Fi, so "Find my place" works on the walk.
+        fetch(`${base}/timings?${query}`)
+          .then((r) => (r.ok ? r.json() : null))
+          .then((t: Timings | null) => setTimings(t), () => undefined);
       })
       .catch((e: unknown) => setError(e instanceof Error ? e.message : 'This walk could not be opened.'));
     return () => {
@@ -115,10 +151,32 @@ function Phone() {
     if (audio.current) return audio.current;
     const a = new Audio();
     a.preload = 'auto';
-    a.addEventListener('timeupdate', () => setNow(a.currentTime));
+    let lastKept = 0;
+    a.addEventListener('timeupdate', () => {
+      setNow(a.currentTime);
+      // Every five seconds, so a page closed by accident can offer to continue.
+      if (Math.abs(a.currentTime - lastKept) >= 5 && !a.src.startsWith('data:')) {
+        lastKept = a.currentTime;
+        keepPlace(id, a.currentTime);
+      }
+    });
+    a.addEventListener('loadedmetadata', () => {
+      // Not on the silent clip that unlocks playback: only the walk itself can seek.
+      if (startAt.current !== null && !a.src.startsWith('data:')) {
+        a.currentTime = startAt.current;
+        startAt.current = null;
+      }
+    });
     a.addEventListener('play', () => setPlaying(true));
-    a.addEventListener('pause', () => setPlaying(false));
-    a.addEventListener('ended', () => setPlaying(false));
+    a.addEventListener('pause', () => {
+      setPlaying(false);
+      if (a.currentTime > 1 && !a.ended) keepPlace(id, a.currentTime);
+    });
+    a.addEventListener('ended', () => {
+      setPlaying(false);
+      keepPlace(id, null);
+      setResumeAt(null);
+    });
     audio.current = a;
     return a;
   };
@@ -136,8 +194,9 @@ function Phone() {
     void a.play().catch(() => setPlaying(false));
   };
 
-  const playHere = async () => {
+  const playHere = async (from: number | null = null) => {
     const a = element();
+    startAt.current = from;
     if (blobUrl.current) {
       startPlaying(a, blobUrl.current);
       return;
@@ -202,6 +261,14 @@ function Phone() {
     const a = audio.current;
     if (!a) return;
     a.currentTime = Math.min(Math.max(0, a.currentTime + delta), a.duration || a.currentTime + delta);
+  };
+
+  const jumpTo = (t: number) => {
+    const a = audio.current;
+    if (!a) return;
+    a.currentTime = t;
+    setNow(t);
+    if (a.paused) void a.play();
   };
 
   const togglePlay = () => {
@@ -290,6 +357,13 @@ function Phone() {
               +15
             </button>
           </div>
+          <button type="button" className="link-button find-place" aria-expanded={findOpen} onClick={() => setFindOpen(!findOpen)}>
+            {findOpen ? 'Close' : 'Find my place'}
+          </button>
+          {findOpen && timings && (
+            <FindPlace timings={timings} now={now} onJump={jumpTo} />
+          )}
+          {findOpen && !timings && <p className="quiet small">The list of sections did not load. The player above still works.</p>}
           {loaded && !streaming ? (
             <div className="loaded" role="status">
               <Tick />
@@ -416,9 +490,20 @@ function Phone() {
           Download MP3
         </a>
         <p className="small center">{megabytes(info.bytes)}. Do this before you leave, while you're still on home Wi-Fi.</p>
+        {resumeAt !== null && (
+          <>
+            <button type="button" className="btn secondary" style={{ marginTop: 4 }} onClick={() => void playHere(resumeAt)}>
+              <Play />
+              Continue from {clock(resumeAt)}
+            </button>
+            <p className="small center" style={{ marginTop: -4 }}>
+              If this page closes away from home it cannot reopen until you are back on your Wi-Fi. The downloaded file always works.
+            </p>
+          </>
+        )}
         <button type="button" className="btn secondary" style={{ marginTop: 4 }} onClick={() => void playHere()}>
           <Play />
-          Play it here instead
+          {resumeAt !== null ? 'Play from the start' : 'Play it here instead'}
         </button>
         <a className="link-button" style={{ alignSelf: 'center', minHeight: 48 }} href={`${base}/audiobook?${query}`} download={info.fileName.replace(/\.mp3$/, '.m4b')} onClick={() => setView('downloaded')}>
           Download as audiobook
@@ -430,6 +515,51 @@ function Phone() {
       <p className="small center" style={{ marginTop: 28, fontSize: 13 }}>
         Made on your computer. Nothing was uploaded.
       </p>
+    </div>
+  );
+}
+
+/** "Find my place": the sections with their times, and the text with the sentence being spoken. */
+function FindPlace({ timings, now, onJump }: { timings: Timings; now: number; onJump: (t: number) => void }) {
+  const box = useRef<HTMLDivElement>(null);
+  const current = lineAt(timings.lines, now);
+  const section = [...timings.sections].reverse().find((s) => s.start <= now + 0.5);
+  useEffect(() => {
+    const el = box.current?.querySelector<HTMLElement>(`[data-line="${current}"]`);
+    const parent = box.current;
+    if (!el || !parent) return;
+    const top = el.offsetTop - parent.offsetTop;
+    if (top < parent.scrollTop || top > parent.scrollTop + parent.clientHeight - 40) parent.scrollTop = Math.max(0, top - parent.clientHeight / 3);
+  }, [current]);
+  return (
+    <div className="find">
+      <ol className="find-sections">
+        {timings.sections.map((s) => (
+          <li key={s.id}>
+            <button type="button" aria-current={section?.id === s.id ? 'true' : undefined} onClick={() => onJump(s.start)}>
+              <span>{s.label}</span>
+              <span className="mono">{clock(s.start)}</span>
+            </button>
+          </li>
+        ))}
+      </ol>
+      <div className="find-text" ref={box}>
+        {timings.lines.map((l, i) => (
+          <a
+            key={i}
+            href={`#t=${l.start.toFixed(1)}`}
+            data-line={i}
+            className={`${l.speaker === 'app' ? 'app ' : ''}${i === current ? 'on' : ''}`}
+            aria-current={i === current ? 'true' : undefined}
+            onClick={(e) => {
+              e.preventDefault();
+              onJump(l.start);
+            }}
+          >
+            {l.text}
+          </a>
+        ))}
+      </div>
     </div>
   );
 }

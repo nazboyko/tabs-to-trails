@@ -1725,3 +1725,113 @@ mark.check {
     transition-duration: 0ms !important;
   }
 }
+
+/* Read-along on the Script screen */
+
+.sentence {
+  padding: 1px 2px;
+  border-radius: 4px;
+  color: inherit;
+  text-decoration: none;
+  cursor: pointer;
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+}
+
+.sentence:hover {
+  background: rgba(30, 58, 43, 0.06);
+}
+
+/* The sentence the voice is on: green, the source's colour; an app line keeps its own block. */
+.sentence.speaking {
+  background: #dfeadf;
+  box-shadow: inset 0 -2px 0 var(--ink);
+}
+
+.app-says .sentence.speaking {
+  background: #f6dcc8;
+  box-shadow: inset 0 -2px 0 var(--orange-text);
+}
+
+.play-here {
+  align-self: flex-start;
+  min-height: 36px;
+  margin-bottom: 4px;
+  font-size: 14px;
+}
+
+.play-here svg {
+  width: 14px;
+  height: 14px;
+}
+
+.page.tight:has(.player-bar) {
+  padding-bottom: 120px;
+}
+
+.player-bar {
+  position: fixed;
+  left: 50%;
+  bottom: 16px;
+  z-index: 5;
+  transform: translateX(-50%);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  width: min(560px, calc(100% - 32px));
+  padding: 10px 14px;
+  border: 1px solid var(--rule);
+  border-radius: 14px;
+  background: var(--card);
+  box-shadow: 0 6px 24px rgba(30, 58, 43, 0.14);
+}
+
+.player-bar .skip,
+.player-bar .main {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 44px;
+  height: 44px;
+  border: 1px solid var(--control);
+  border-radius: 22px;
+  background: #ffffff;
+  color: var(--ink);
+  font-family: var(--mono);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.player-bar .main {
+  width: 48px;
+  height: 48px;
+  border: 0;
+  background: var(--ink);
+}
+
+.player-bar .main svg {
+  fill: var(--card);
+  stroke: var(--card);
+}
+
+.player-bar .time {
+  font-size: 14px;
+}
+
+.player-bar .back-to-voice {
+  min-height: 40px;
+  margin-left: auto;
+  font-size: 14px;
+}
+
+.player-bar .hint {
+  flex-basis: 100%;
+  margin: 0;
+}
+
+@media (max-width: 480px) {
+  .player-bar .hint {
+    display: none;
+  }
+}
