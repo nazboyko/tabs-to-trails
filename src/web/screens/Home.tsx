@@ -3,7 +3,7 @@ import { api, ApiError, type Health, type ListItem, type SourcePayload, type Voi
 import { ScreenTitle } from '../common';
 import { clock, countWords, words } from '../format';
 import { Arrow, Cross, FileUp, Grip, Lock, MoveDown, MoveUp, Notice, Play, Stop } from '../icons';
-import { savedAgo, savedLine, things, walkTime } from '../list';
+import { rowTitle, savedAgo, savedLine, things, walkTime } from '../list';
 import { pickWalk } from '../pick';
 import { MAX_PIECES, moveItem, parseLinks } from '../pieces';
 import { navigate, onLink } from '../router';
@@ -70,6 +70,7 @@ export function Home() {
   // After a manual change, rows saved in this visit are ticked once their check comes back, while there is room.
   const autoTick = useRef(new Set<string>());
   const [preview, setWalkPreview] = useState<WalkPreview | null>(null);
+  const [splitting, setSplitting] = useState(false);
   const [fresh, setFresh] = useState<string[]>([]);
   const [showAll, setShowAll] = useState(false);
   const [addOpen, setAddOpen] = useState(params.get('tab') === 'text');
@@ -427,6 +428,24 @@ export function Home() {
     void refresh().catch(() => undefined);
   };
 
+  /** A long read becomes a series: its row is replaced by its parts, and part 1 goes into this walk. */
+  const splitInto = async (item: ListItem, parts: number) => {
+    if (target === null) return;
+    setSplitting(true);
+    try {
+      const { parts: made } = await api.split(item.id, target, voice);
+      setManual(false);
+      const next = await refresh();
+      setFresh(made.map((m) => m.id));
+      setNote(`Split into ${made.length} walks. Part 1 is in this walk; the other ${made.length - 1 === 1 ? 'part waits' : 'parts wait'} in your list, first in line.`);
+      void next;
+    } catch (err) {
+      setFormError(err instanceof Error ? err.message : `${item.title} could not be split into ${parts} walks.`);
+    } finally {
+      setSplitting(false);
+    }
+  };
+
   /** Waits for the given rows to finish their check, for a walk made straight from the add box. */
   const settle = async (ids: string[]): Promise<ListItem[]> => {
     for (let i = 0; i < 60; i++) {
@@ -585,10 +604,10 @@ export function Home() {
                     <span className="what">
                       {ready ? (
                         <label htmlFor={`tick-${item.id}`} className="name">
-                          {item.title}
+                          {rowTitle(item)}
                         </label>
                       ) : (
-                        <span className="name">{item.title}</span>
+                        <span className="name">{rowTitle(item)}</span>
                       )}
                       <span className="note" id={`row-note-${item.id}`}>
                         {item.status === 'checking' && 'Checking…'}
@@ -611,20 +630,20 @@ export function Home() {
                     </span>
                     <span className="mins">{ready ? walkTime(item.minutes) : ''}</span>
                     <span className="moves">
-                      <button id={`row-${item.id}-up`} type="button" className="icon-btn" aria-label={`Move up: ${item.title}`} disabled={i === 0} onClick={() => move(i, i - 1, 'up')}>
+                      <button id={`row-${item.id}-up`} type="button" className="icon-btn" aria-label={`Move up: ${rowTitle(item)}`} disabled={i === 0} onClick={() => move(i, i - 1, 'up')}>
                         <MoveUp />
                       </button>
                       <button
                         id={`row-${item.id}-down`}
                         type="button"
                         className="icon-btn"
-                        aria-label={`Move down: ${item.title}`}
+                        aria-label={`Move down: ${rowTitle(item)}`}
                         disabled={i === waiting.length - 1}
                         onClick={() => move(i, i + 1, 'down')}
                       >
                         <MoveDown />
                       </button>
-                      <button id={`row-${item.id}-remove`} type="button" className="icon-btn" aria-label={`Remove: ${item.title}`} onClick={() => void remove(i)}>
+                      <button id={`row-${item.id}-remove`} type="button" className="icon-btn" aria-label={`Remove: ${rowTitle(item)}`} onClick={() => void remove(i)}>
                         <Cross />
                       </button>
                     </span>
@@ -858,9 +877,24 @@ export function Home() {
                 const planned = shownPreview?.pieces.find((p) => p.id === i.id);
                 return (
                   <li key={i.id}>
-                    <span className="name">{i.title}</span>
+                    <span className="name">{rowTitle(i)}</span>
                     <span className="mins">{walkTime(planned?.minutes ?? i.minutes)}</span>
-                    <span className="how">{planned ? (planned.treatment === 'full' ? 'in full' : `condensed from ${walkTime(planned.fullMinutes)}`) : ''}</span>
+                    <span className="how">
+                      {planned ? (planned.treatment === 'full' ? (i.part ? `part ${i.part} of ${i.parts}` : 'in full') : `condensed from ${walkTime(planned.fullMinutes)}`) : ''}
+                    </span>
+                    {planned?.splitParts && target !== null && (
+                      <fieldset className="series-choice">
+                        <legend className="visually-hidden">How to walk {i.title}</legend>
+                        <label>
+                          <input type="radio" name={`how-${i.id}`} checked onChange={() => undefined} />
+                          Condense to {target} min
+                        </label>
+                        <label>
+                          <input type="radio" name={`how-${i.id}`} checked={false} disabled={splitting} onChange={() => void splitInto(i, planned.splitParts!)} />
+                          Split into {planned.splitParts} walks
+                        </label>
+                      </fieldset>
+                    )}
                   </li>
                 );
               })}

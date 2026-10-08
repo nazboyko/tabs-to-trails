@@ -23,6 +23,11 @@ export function savedAgo(savedAt: string, now: Date = new Date()): string {
   return `saved ${Math.round(days / 30)} months ago`;
 }
 
+/** A row's name: a part of a series says which part it is. */
+export function rowTitle(item: { title: string; part?: number; parts?: number }): string {
+  return item.part && item.parts ? `Part ${item.part} of ${item.parts} · ${item.title}` : item.title;
+}
+
 /** "1 thing", "4 things": the list's own count. */
 export function things(n: number): string {
   return `${n} ${n === 1 ? 'thing' : 'things'}`;

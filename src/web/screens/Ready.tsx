@@ -131,6 +131,11 @@ export function Ready({ detail: d, arrived = false }: { detail: ReadyDetail; arr
             {d.closed} {d.closed === 1 ? 'tab' : 'tabs'} closed.
           </p>
         )}
+        {d.series && d.series.part < d.series.parts && (
+          <p className="small closed-line">
+            Part {d.series.part} of {d.series.parts}. Part {d.series.part + 1} is waiting in your list.
+          </p>
+        )}
       </div>
 
       {d.skipped.length > 0 && (

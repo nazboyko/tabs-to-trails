@@ -47,7 +47,7 @@ export interface WalkList {
 }
 
 export interface WalkPreview {
-  pieces: { id: string; title: string; fullMinutes: number; minutes: number; treatment: 'full' | 'condensed' }[];
+  pieces: { id: string; title: string; fullMinutes: number; minutes: number; treatment: 'full' | 'condensed'; splitParts?: number }[];
   minutes: number;
   targetMinutes: number | null;
   mode: 'full' | 'condensed';
@@ -152,6 +152,7 @@ export type WalkDetail =
       segments: Segment[];
       leftOut: string[];
       closed: number;
+      series: { part: number; parts: number } | null;
       pieces: Piece[];
       skipped: Skipped[];
       share: { url: string; qr: string } | null;
@@ -244,6 +245,12 @@ export const api = {
       body: JSON.stringify({ text, title }),
     }),
   removeItem: (id: string) => call<unknown>(`/api/list/${id}`, { method: 'DELETE' }),
+  split: (id: string, minutes: number, voice: VoiceKey) =>
+    call<{ parts: ListItem[] }>(`/api/list/${id}/split`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ minutes, voice }),
+    }),
   reorder: (ids: string[]) =>
     call<unknown>('/api/list/order', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids }) }),
   preview: (items: string[], minutes: number | null, voice: VoiceKey, quietMinutes = 0) =>

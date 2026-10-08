@@ -738,10 +738,38 @@ legend.step-head {
 
 .your-walk li {
   display: flex;
+  flex-wrap: wrap;
   align-items: baseline;
-  gap: 12px;
+  gap: 4px 12px;
   padding: 10px 0;
   border-bottom: 1px solid var(--rule);
+}
+
+/* One long read: condense it into this walk, or make it a series of walks. */
+.series-choice {
+  display: flex;
+  flex-wrap: wrap;
+  flex-basis: 100%;
+  gap: 0 20px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.series-choice label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  font-size: 15px;
+  cursor: pointer;
+}
+
+.series-choice input {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  accent-color: var(--ink);
 }
 
 .your-walk .name {
