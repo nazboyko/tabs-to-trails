@@ -282,13 +282,21 @@ interface RewriteState {
   question?: { text: string | null; seconds: number };
 }
 
-/** The text the closing question is drawn from: the source if it fits, else the script. */
-function questionSource(sections: Section[], script: ScriptSection[]): string {
+/**
+ * The text the closing question is drawn from: the source if it fits, else
+ * the script. A walk too long for either (an hour of several pieces) asks
+ * about its last stretch: the end of the script, as much as fits.
+ */
+export function questionSource(sections: Section[], script: ScriptSection[], fits = fitsQuestionRequest): { text: string; from: number } {
   const source = sections
     .map((s) => [s.heading, ...s.blocks.map((b) => (b.kind === 'code' || b.kind === 'table' ? '' : readAsWritten(b)))].filter(Boolean).join('\n'))
     .join('\n\n');
-  if (fitsQuestionRequest(source)) return source;
-  return script.map((s) => s.text).join('\n\n');
+  if (fits(source)) return { text: source, from: 0 };
+  const whole = script.map((s) => s.text).join('\n\n');
+  if (fits(whole)) return { text: whole, from: 0 };
+  let from = script.length - 1;
+  while (from > 0 && fits(script.slice(from - 1).map((s) => s.text).join('\n\n'))) from--;
+  return { text: script.slice(from).map((s) => s.text).join('\n\n'), from };
 }
 
 async function stageRewrite(
@@ -320,7 +328,9 @@ async function stageRewrite(
   const done = sections.map((s) => ({ ...state.sections[s.id]!, ...(s.piece !== undefined ? { piece: s.piece } : {}) }));
   if (!state.question) {
     onProgress({ stage: 'rewrite', state: 'active', done: total, total, detail: 'A question for the last stretch' });
-    const q = await closingQuestion(info.title, questionSource(sections, done));
+    const asked = questionSource(sections, done);
+    // When only the end of a playlist fits, the question is about the piece it comes from.
+    const q = await closingQuestion(asked.from > 0 ? pieceTitle(info, done[asked.from]!.piece) : info.title, asked.text);
     state.question = { text: q.question, seconds: q.seconds };
     await writeJson(dir, 'rewrite.json', state);
   }

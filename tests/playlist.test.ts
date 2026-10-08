@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { clock, placeCues, type CueItem } from '../src/server/audio/timeline.js';
-import { introText } from '../src/server/pipeline.js';
+import { introText, questionSource } from '../src/server/pipeline.js';
+import type { ScriptSection } from '../src/server/script/rewrite.js';
 import { BuildBody } from '../src/server/routes/build.js';
 import { carriedTarget, groupSections, planWalk } from '../src/server/script/budget.js';
 import type { SourceInput } from '../src/server/source/index.js';
@@ -223,5 +224,32 @@ describe('the Build screen list', () => {
   it('says a short playlist is shorter together', () => {
     const line = askedLine({ targetSeconds: 3600, actualSeconds: 139, mode: 'full', sourceWords: 293, scriptWords: 293, fullSeconds: 140, pieces: 2 });
     expect(line).toBe('You asked for 1:00:00. Together they run shorter, so nothing was cut.');
+  });
+});
+
+describe('questionSource', () => {
+  const said = (id: string, text: string): ScriptSection => ({
+    id,
+    heading: id,
+    treatment: 'condensed',
+    coverage: 'Condensed',
+    adapted: [],
+    text,
+    words: text.split(' ').length,
+    checkNumbers: [],
+    retried: false,
+    modelSeconds: 0,
+    modelCalls: 0,
+  });
+  const script = [said('s01', 'first part of the walk'), said('s02', 'second part'), said('s03', 'the last stretch')];
+  const sections = [prose('s01', 50), prose('s02', 50), prose('s03', 50)];
+
+  it('uses the source when it fits, as before', () => {
+    expect(questionSource(sections, script, () => true)).toEqual({ text: expect.stringContaining('word word'), from: 0 });
+  });
+
+  it('asks about the end of a walk too long for the source or the whole script', () => {
+    const fits = (text: string) => text.length <= 40;
+    expect(questionSource(sections, script, fits)).toEqual({ text: 'second part\n\nthe last stretch', from: 1 });
   });
 });
