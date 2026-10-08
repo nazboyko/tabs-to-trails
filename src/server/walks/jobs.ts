@@ -140,10 +140,22 @@ export class Jobs {
 
   constructor(private readonly runner: typeof runPipeline = runPipeline) {}
 
-  async create(request: BuildRequest): Promise<WalkRecord> {
-    const record: WalkRecord = { id: newId(), token: newToken(), createdAt: new Date().toISOString(), request };
-    const dir = walkDir(record.id);
+  /**
+   * `prepare` builds the request inside the new walk folder (copies of saved
+   * sources) before the walk is recorded and queued.
+   */
+  async create(request: BuildRequest, prepare?: (dir: string, id: string) => Promise<BuildRequest>): Promise<WalkRecord> {
+    const id = newId();
+    const dir = walkDir(id);
     await fs.mkdir(dir, { recursive: true });
+    let final = request;
+    try {
+      if (prepare) final = await prepare(dir, id);
+    } catch (err) {
+      await fs.rm(dir, { recursive: true, force: true });
+      throw err;
+    }
+    const record: WalkRecord = { id, token: newToken(), createdAt: new Date().toISOString(), request: final };
     await writeJson(dir, 'walk.json', record);
     await this.save(record.id, freshStatus());
     this.enqueue(record.id);

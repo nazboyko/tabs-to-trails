@@ -8,7 +8,9 @@ import { serveStatic } from '@hono/node-server/serve-static';
 import { Hono } from 'hono';
 import { bodyLimit } from 'hono/body-limit';
 import { loadConfig } from './config.js';
+import { WalkList } from './list/store.js';
 import { buildRoutes } from './routes/build.js';
+import { listRoutes } from './routes/list.js';
 import { healthRoutes } from './routes/health.js';
 import { voiceRoutes } from './routes/voices.js';
 import { phoneRoutes, walkRoutes } from './routes/walk.js';
@@ -80,7 +82,7 @@ export function access(req: AccessRequest): 'ok' | 'hidden' | 'host' | 'origin' 
   return 'ok';
 }
 
-export function createApp(jobs: Jobs, webDir = WEB_DIR) {
+export function createApp(jobs: Jobs, webDir = WEB_DIR, list = new WalkList()) {
   const app = new Hono();
 
   app.use('*', async (c, next) => {
@@ -105,10 +107,13 @@ export function createApp(jobs: Jobs, webDir = WEB_DIR) {
   });
 
   app.use('/api/build', bodyLimit({ maxSize: 3 * 1024 * 1024, onError: (c) => c.json({ error: 'That is more text than one walk can hold.' }, 413) }));
+  app.use('/api/list/*', bodyLimit({ maxSize: 3 * 1024 * 1024, onError: (c) => c.json({ error: 'That is more text than the list takes at once. Save a part of it.' }, 413) }));
+  app.use('/api/list', bodyLimit({ maxSize: 3 * 1024 * 1024, onError: (c) => c.json({ error: 'That is more text than the list takes at once. Save a part of it.' }, 413) }));
 
   app.route('/api/health', healthRoutes);
   app.route('/api/voices', voiceRoutes);
-  app.route('/api/build', buildRoutes(jobs));
+  app.route('/api/build', buildRoutes(jobs, list));
+  app.route('/api/list', listRoutes(list, jobs));
   app.route('/api/walks', walkRoutes(jobs));
   app.route('/w', phoneRoutes(jobs, () => readOptional(path.join(webDir, 'phone.html'))));
 
@@ -138,7 +143,8 @@ function openBrowser(url: string): void {
 export async function start(options: { open?: boolean } = {}) {
   const cfg = loadConfig();
   const jobs = new Jobs();
-  const app = createApp(jobs);
+  const list = new WalkList();
+  const app = createApp(jobs, WEB_DIR, list);
   const server = serve({ fetch: app.fetch, port: cfg.PORT, hostname: '0.0.0.0' });
   await new Promise<void>((resolve, reject) => {
     server.once('listening', () => resolve());
@@ -153,10 +159,12 @@ export async function start(options: { open?: boolean } = {}) {
   const url = `http://localhost:${cfg.PORT}`;
   console.log(`Tabs to Trails is running at ${url}`);
   console.log(lanAddress() ? 'Phones on the same Wi-Fi can open walks through the QR code.' : 'No network found, so there is no phone link. Downloads still work.');
+  const rechecking = await list.resume();
+  if (rechecking) console.log(`Checking ${rechecking} saved ${rechecking === 1 ? 'link' : 'links'} again.`);
   const resumed = await jobs.resumeAll();
   if (resumed.length) console.log(`Picking up ${resumed.length} unfinished ${resumed.length === 1 ? 'walk' : 'walks'} where ${resumed.length === 1 ? 'it' : 'they'} stopped.`);
   if (options.open) openBrowser(url);
-  return { server, jobs, app };
+  return { server, jobs, app, list };
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {

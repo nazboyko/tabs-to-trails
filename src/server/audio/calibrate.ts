@@ -76,6 +76,12 @@ async function save(key: string, value: Calibration): Promise<void> {
   await fs.rename(tmp, calibrationFile());
 }
 
+/** The voice's measured pace if it was ever measured; never measures. */
+export async function storedCalibration(voice: VoiceKey): Promise<Calibration | null> {
+  const known = (await readAll())[keyFor(voice)];
+  return known?.charsPerSecond ? known : null;
+}
+
 export async function calibration(voice: VoiceKey): Promise<Calibration> {
   const key = keyFor(voice);
   const known = (await readAll())[key];

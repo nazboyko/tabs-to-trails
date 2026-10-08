@@ -26,6 +26,17 @@ export interface BuildRequest {
   /** null means "Whole thing". */
   minutes: number | null;
   voice: VoiceKey;
+  /** The walk-list items this walk was made from, in order. */
+  items?: string[];
+}
+
+/** Reads a source; one saved to the list comes from its copy in the walk folder, never the network. */
+export function sourceReader(dir: string) {
+  return async (input: SourceInput, signal?: AbortSignal): Promise<SourceDoc> => {
+    if (input.kind !== 'saved') return readSource(input, signal);
+    if (!/^saved-\d+\.md$/.test(input.file)) throw new Error('Bad saved source file.');
+    return { ...input.doc, markdown: await fs.readFile(path.join(dir, input.file), 'utf8') };
+  };
 }
 
 export function requestSources(req: BuildRequest): SourceInput[] {
@@ -165,7 +176,7 @@ async function stageRead(dir: string, req: BuildRequest, signal?: AbortSignal) {
   let info = await readJson<SourceInfo>(dir, 'source.json');
   let sections = await readJson<Section[]>(dir, 'sections.json');
   if (info && sections) return { info, sections };
-  const { pieces, skipped } = await readPieces(requestSources(req), readSource, signal);
+  const { pieces, skipped } = await readPieces(requestSources(req), sourceReader(dir), signal);
   let n = 0;
   sections = pieces.flatMap((p, piece) =>
     p.sections.map((s) => ({ ...s, id: `s${String(++n).padStart(2, '0')}`, ...(pieces.length > 1 ? { piece } : {}) })),

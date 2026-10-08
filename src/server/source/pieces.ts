@@ -38,6 +38,7 @@ export function sourceLabel(input: SourceInput): string {
     }
   }
   if (input.kind === 'file') return input.name;
+  if (input.kind === 'saved') return input.doc.title;
   return input.title?.trim() || 'Pasted text';
 }
 
