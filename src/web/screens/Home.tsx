@@ -1,9 +1,10 @@
-import { useEffect, useRef, useState } from 'react';
-import { api, ApiError, type Health, type ListItem, type SourcePayload, type Voice, type VoiceKey, type WalkList } from '../api';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { api, ApiError, type Health, type ListItem, type SourcePayload, type Voice, type VoiceKey, type WalkList, type WalkPreview } from '../api';
 import { ScreenTitle } from '../common';
 import { clock, countWords, words } from '../format';
 import { Arrow, Cross, FileUp, Grip, Lock, MoveDown, MoveUp, Notice, Play, Stop } from '../icons';
 import { savedAgo, savedLine, things, walkTime } from '../list';
+import { pickWalk } from '../pick';
 import { MAX_PIECES, moveItem, parseLinks } from '../pieces';
 import { navigate, onLink } from '../router';
 import { Setup } from './Setup';
@@ -17,7 +18,7 @@ const LENGTHS: { key: Length; label: string; hint: string }[] = [
   { key: '30', label: '30 min', hint: 'A proper walk.' },
   { key: '45', label: '45 min', hint: 'Room for a long read, or a few short ones. A second cue says how much is left.' },
   { key: '60', label: '60 min', hint: 'An hour out. A second cue at three quarters says how much is left.' },
-  { key: 'whole', label: 'Whole thing', hint: 'As long as it takes. Nothing gets cut.' },
+  { key: 'whole', label: 'Everything', hint: 'Everything you tick, read in full. Nothing gets cut.' },
 ];
 
 const FALLBACK_VOICES: Voice[] = [
@@ -55,9 +56,12 @@ export function Home() {
   const params = useRef(new URLSearchParams(location.search)).current;
   const [health, setHealth] = useState<Health | null>(null);
   const [items, setItems] = useState<ListItem[] | null>(null);
+  // Until the person ticks or unticks a row, the length picks the rows.
+  const [manual, setManual] = useState(false);
   const [ticked, setTicked] = useState<string[]>([]);
-  // Rows saved in this visit are ticked once their check comes back, while there is room.
+  // After a manual change, rows saved in this visit are ticked once their check comes back, while there is room.
   const autoTick = useRef(new Set<string>());
+  const [preview, setWalkPreview] = useState<WalkPreview | null>(null);
   const [fresh, setFresh] = useState<string[]>([]);
   const [showAll, setShowAll] = useState(false);
   const [addOpen, setAddOpen] = useState(params.get('tab') === 'text');
@@ -82,7 +86,7 @@ export function Home() {
   const [length, setLength] = useState<Length>(() => remembered('t2t-length', ['10', '20', '30', '45', '60', 'whole'] as const, '20'));
   const [voice, setVoice] = useState<VoiceKey>(() => remembered('t2t-voice', ['heart', 'michael', 'emma', 'george'] as const, 'heart'));
   const [voices, setVoices] = useState<Voice[]>(FALLBACK_VOICES);
-  const [preview, setPreview] = useState<'idle' | 'loading' | 'playing'>('idle');
+  const [hear, setHear] = useState<'idle' | 'loading' | 'playing'>('idle');
   const [previewError, setPreviewError] = useState<string | null>(null);
   const [recent, setRecent] = useState<WalkList | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
@@ -180,14 +184,46 @@ export function Home() {
       .catch((err: unknown) => setStatus(err instanceof Error ? err.message : 'That tab could not be saved.'));
   }, [health?.ready, params]);
 
+  const target = length === 'whole' ? null : Number(length);
+  const proposal = useMemo(() => pickWalk(items ?? [], target), [items, target]);
+  const chosenIds = manual ? ticked : proposal;
+  // The ticked rows in list order: the order the walk will play them.
+  const chosenKey = (items ?? [])
+    .filter((i) => i.status === 'ready' && chosenIds.includes(i.id))
+    .map((i) => i.id)
+    .join(',');
+
+  // The panel shows the build's own first plan for what is ticked.
+  useEffect(() => {
+    const ids = chosenKey ? chosenKey.split(',') : [];
+    if (!ids.length) {
+      setWalkPreview(null);
+      return;
+    }
+    let stale = false;
+    const timer = window.setTimeout(() => {
+      api.preview(ids, target, voice).then(
+        (p) => !stale && setWalkPreview(p),
+        () => !stale && setWalkPreview(null),
+      );
+    }, 120);
+    return () => {
+      stale = true;
+      window.clearTimeout(timer);
+    };
+  }, [chosenKey, target, voice]);
+
   if (!health) return <div className="page" aria-busy="true" />;
   if (!health.ready) return <Setup health={health} onReady={setHealth} />;
 
   const waiting = items ?? [];
   const shown = showAll ? waiting : waiting.slice(0, SHOWN);
-  const chosen = waiting.filter((i) => i.status === 'ready' && ticked.includes(i.id));
+  const chosen = waiting.filter((i) => i.status === 'ready' && chosenIds.includes(i.id));
   const readyMinutes = waiting.filter((i) => i.status === 'ready').reduce((n, i) => n + i.minutes, 0);
-  const chosenMinutes = chosen.reduce((n, i) => n + i.minutes, 0);
+  // A preview for rows that are no longer ticked is not shown.
+  const shownPreview = preview && chosen.every((i) => preview.pieces.some((p) => p.id === i.id)) && preview.targetMinutes === target ? preview : null;
+  const sumLine = chosen.length && shownPreview ? `about ${walkTime(shownPreview.minutes)}${target === null ? '' : ` for ${target}`}` : '';
+  const tooLittle = target !== null && shownPreview !== null && chosen.length > 0 && shownPreview.minutes < target * 0.9;
   const voiceName = voices.find((v) => v.key === voice)?.name ?? 'Heart';
   const lengthHint = LENGTHS.find((l) => l.key === length)!.hint;
   const empty = items !== null && waiting.length === 0;
@@ -201,36 +237,38 @@ export function Home() {
   const pickLength = (l: Length) => {
     setLength(l);
     remember('t2t-length', l);
+    // A new length makes a new proposal, over any ticks made by hand.
+    setManual(false);
   };
 
   const pickVoice = (v: VoiceKey) => {
     setVoice(v);
     remember('t2t-voice', v);
     audioRef.current?.pause();
-    setPreview('idle');
+    setHear('idle');
   };
 
   const togglePreview = async () => {
     setPreviewError(null);
-    if (preview !== 'idle') {
+    if (hear !== 'idle') {
       audioRef.current?.pause();
-      setPreview('idle');
+      setHear('idle');
       return;
     }
-    setPreview('loading');
+    setHear('loading');
     const audio = new Audio(`/api/voices/${voice}/preview`);
     audioRef.current?.pause();
     audioRef.current = audio;
-    audio.onended = () => setPreview('idle');
+    audio.onended = () => setHear('idle');
     audio.onerror = () => {
-      setPreview('idle');
+      setHear('idle');
       setPreviewError(`${voiceName} couldn't start. The voice downloads on first use, so check the connection and try again.`);
     };
     try {
       await audio.play();
-      setPreview('playing');
+      setHear('playing');
     } catch {
-      setPreview('idle');
+      setHear('idle');
     }
   };
 
@@ -333,15 +371,18 @@ export function Home() {
 
   const toggle = (item: ListItem) => {
     setFormError(null);
-    if (ticked.includes(item.id)) {
-      setTicked(ticked.filter((id) => id !== item.id));
+    const base = chosen.map((i) => i.id);
+    if (base.includes(item.id)) {
+      setTicked(base.filter((id) => id !== item.id));
+      setManual(true);
       return;
     }
-    if (chosen.length >= MAX_PIECES) {
+    if (base.length >= MAX_PIECES) {
       setNote(`A walk holds up to ${MAX_PIECES} pieces. Untick one first.`);
       return;
     }
-    setTicked([...ticked, item.id]);
+    setTicked([...base, item.id]);
+    setManual(true);
   };
 
   const move = (from: number, to: number, keep?: 'up' | 'down') => {
@@ -517,7 +558,7 @@ export function Home() {
                         <input
                           id={`tick-${item.id}`}
                           type="checkbox"
-                          checked={ticked.includes(item.id)}
+                          checked={chosenIds.includes(item.id)}
                           onChange={() => toggle(item)}
                           aria-describedby={`row-note-${item.id}`}
                         />
@@ -793,19 +834,34 @@ export function Home() {
               3
             </span>
             Your walk
-            {chosen.length > 0 && <span className="sum">about {walkTime(chosenMinutes)} read in full</span>}
+            {sumLine && <span className="sum">{sumLine}</span>}
           </h2>
           {chosen.length > 0 ? (
             <ul className="your-walk">
-              {chosen.map((i) => (
-                <li key={i.id}>
-                  <span className="name">{i.title}</span>
-                  <span className="mins">{walkTime(i.minutes)}</span>
-                </li>
-              ))}
+              {chosen.map((i) => {
+                const planned = shownPreview?.pieces.find((p) => p.id === i.id);
+                return (
+                  <li key={i.id}>
+                    <span className="name">{i.title}</span>
+                    <span className="mins">{walkTime(planned?.minutes ?? i.minutes)}</span>
+                    <span className="how">{planned ? (planned.treatment === 'full' ? 'in full' : `condensed from ${walkTime(planned.fullMinutes)}`) : ''}</span>
+                  </li>
+                );
+              })}
             </ul>
           ) : (
-            <p className="small">{pendingCount ? 'What is in the box above goes into this walk.' : 'Tick what you want to hear.'}</p>
+            <p className="small">
+              {pendingCount
+                ? 'What is in the box above goes into this walk.'
+                : target === null
+                  ? 'Tick what you want to hear. Everything ticked is read in full.'
+                  : 'Tick what you want to hear.'}
+            </p>
+          )}
+          {tooLittle && (
+            <p className="small too-little">
+              This is a {Math.max(1, Math.round(shownPreview!.minutes))}-minute walk. Add something, or pick a shorter length.
+            </p>
           )}
 
           <details className="options">
@@ -824,13 +880,13 @@ export function Home() {
                 ))}
               </div>
               <button type="button" className="link-button" style={{ alignSelf: 'flex-start' }} onClick={togglePreview} aria-live="polite">
-                {preview === 'idle' && (
+                {hear === 'idle' && (
                   <>
                     <Play /> Hear {voiceName} for ten seconds
                   </>
                 )}
-                {preview === 'loading' && <>Getting {voiceName} ready…</>}
-                {preview === 'playing' && (
+                {hear === 'loading' && <>Getting {voiceName} ready…</>}
+                {hear === 'playing' && (
                   <>
                     <Stop /> Stop {voiceName}
                   </>
@@ -864,7 +920,9 @@ export function Home() {
 
       <section className="stack recent" style={{ gap: 12 }} aria-labelledby="recent-title">
         <h2 id="recent-title" className="section-title">
-          Recent walks
+          {recent && recent.walked.count > 0
+            ? `Walked: ${recent.walked.count} ${recent.walked.count === 1 ? 'walk' : 'walks'} · ${walkTime(recent.walked.seconds / 60)}`
+            : 'Walked'}
         </h2>
         {recent && recentWalks.length === 0 && <p className="empty">No Walk Editions yet. Your first one will appear here.</p>}
         {recentWalks.length > 0 && (

@@ -98,7 +98,7 @@ export function Progress({ detail, onDone, onGone }: { detail: NotReady; onDone:
   const failed = status?.state === 'failed' ? status.error : undefined;
   const minutes = detail.request?.minutes;
   const sub = detail.request
-    ? `${minutes === null ? 'Whole thing' : `${minutes} min walk`} · ${VOICE_NAMES[detail.request.voice] ?? detail.request.voice}`
+    ? `${minutes === null ? 'Everything' : `${minutes} min walk`} · ${VOICE_NAMES[detail.request.voice] ?? detail.request.voice}`
     : '';
 
   const cancel = async () => {

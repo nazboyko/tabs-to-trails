@@ -756,6 +756,34 @@ legend.step-head {
   font-size: 14px;
 }
 
+.your-walk .how {
+  flex: none;
+  min-width: 9.5em;
+  font-size: 13px;
+  color: var(--muted);
+  text-align: right;
+}
+
+.too-little {
+  margin: 0;
+}
+
+.closed-line {
+  margin: 4px 0 0;
+}
+
+@media (max-width: 480px) {
+  .your-walk li {
+    flex-wrap: wrap;
+  }
+
+  .your-walk .how {
+    min-width: 0;
+    flex-basis: 100%;
+    text-align: left;
+  }
+}
+
 .options summary {
   display: flex;
   align-items: center;

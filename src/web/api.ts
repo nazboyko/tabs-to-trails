@@ -41,7 +41,16 @@ export interface WalkList {
   walks: WalkSummary[];
   active: { id: string; title: string | null } | null;
   total: number;
+  /** Every finished walk: how many, and how long together. */
+  walked: { count: number; seconds: number };
   lan: boolean;
+}
+
+export interface WalkPreview {
+  pieces: { id: string; title: string; fullMinutes: number; minutes: number; treatment: 'full' | 'condensed' }[];
+  minutes: number;
+  targetMinutes: number | null;
+  mode: 'full' | 'condensed';
 }
 
 export interface Meta {
@@ -139,6 +148,7 @@ export type WalkDetail =
       };
       segments: Segment[];
       leftOut: string[];
+      closed: number;
       pieces: Piece[];
       skipped: Skipped[];
       share: { url: string; qr: string } | null;
@@ -215,6 +225,12 @@ export const api = {
   removeItem: (id: string) => call<unknown>(`/api/list/${id}`, { method: 'DELETE' }),
   reorder: (ids: string[]) =>
     call<unknown>('/api/list/order', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids }) }),
+  preview: (items: string[], minutes: number | null, voice: VoiceKey) =>
+    call<WalkPreview>('/api/list/preview', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ items, minutes, voice }),
+    }),
   /** A walk from list items, in the order given. */
   buildItems: (items: string[], minutes: number | null, voice: VoiceKey) =>
     call<{ id: string }>('/api/build', {

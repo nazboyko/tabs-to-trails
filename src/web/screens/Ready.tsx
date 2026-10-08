@@ -118,6 +118,11 @@ export function Ready({ detail: d, arrived = false }: { detail: ReadyDetail; arr
           </span>
           <span>{asked(d)}</span>
         </div>
+        {d.closed > 0 && (
+          <p className="small closed-line">
+            {d.closed} {d.closed === 1 ? 'tab' : 'tabs'} closed.
+          </p>
+        )}
       </div>
 
       {d.skipped.length > 0 && (
