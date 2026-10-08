@@ -6,6 +6,8 @@ import { createRoot } from 'react-dom/client';
 import { clock, megabytes } from './format';
 import { Back, Download, Logo, Pause, Play, PlayFilled, Tick } from './icons';
 import { lineAt } from './readalong';
+import { remindHref } from './remind';
+import { RemindMe } from './RemindMe';
 
 interface Info {
   title: string;
@@ -17,6 +19,7 @@ interface Info {
   chapters: { label: string; start: number }[];
   /** The pieces of a playlist walk; empty for a single source. */
   pieces?: { title: string; start: number; seconds: number }[];
+  series?: { part: number; parts: number; left: number } | null;
 }
 
 type View = 'home' | 'downloaded' | 'loading' | 'playing';
@@ -511,6 +514,9 @@ function Phone() {
         <p className="small center" style={{ marginTop: -8 }}>
           Remembers your place and lets you skip by section in an audiobook app.
         </p>
+      </div>
+      <div className="phone-remind">
+        <RemindMe href={(start, daily) => remindHref(base, start, daily, query)} seriesLeft={info.series?.left ?? 0} open="navigate" />
       </div>
       <p className="small center" style={{ marginTop: 28, fontSize: 13 }}>
         Made on your computer. Nothing was uploaded.

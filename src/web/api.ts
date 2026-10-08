@@ -152,7 +152,7 @@ export type WalkDetail =
       segments: Segment[];
       leftOut: string[];
       closed: number;
-      series: { part: number; parts: number } | null;
+      series: { part: number; parts: number; left: number } | null;
       pieces: Piece[];
       skipped: Skipped[];
       share: { url: string; qr: string } | null;

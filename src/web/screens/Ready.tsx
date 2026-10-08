@@ -4,6 +4,8 @@ import type { WalkDetail } from '../api';
 import { clock, megabytes, plural, words } from '../format';
 import { askedLine } from '../lengths';
 import { Chevron, Download, Notice } from '../icons';
+import { remindHref } from '../remind';
+import { RemindMe } from '../RemindMe';
 import { onLink } from '../router';
 
 type ReadyDetail = Extract<WalkDetail, { ready: true }>;
@@ -195,10 +197,11 @@ export function Ready({ detail: d, arrived = false }: { detail: ReadyDetail; arr
         <p className="small" style={{ margin: 0 }}>
           The audiobook remembers your place and lets you skip by section in an audiobook app.
         </p>
-        <div className="row">
+        <div className="row ready-more">
           <a className="btn" href={`/walk/${d.id}/script`} onClick={onLink} style={{ minHeight: 52 }}>
             Read the script
           </a>
+          <RemindMe href={(start, daily) => remindHref(`/api/walks/${d.id}`, start, daily)} seriesLeft={d.series?.left ?? 0} />
         </div>
       </div>
 

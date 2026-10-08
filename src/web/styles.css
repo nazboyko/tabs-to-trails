@@ -1863,3 +1863,78 @@ mark.check {
     display: none;
   }
 }
+
+/* Remind me */
+
+.ready-more {
+  align-items: flex-start;
+}
+
+.ready-more > .btn,
+.ready-more > .remind {
+  flex: 1 1 200px;
+}
+
+.remind {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.remind > .btn {
+  width: 100%;
+}
+
+.remind-line {
+  margin: 0;
+}
+
+.remind-box {
+  display: flex;
+  flex-direction: column;
+  flex-basis: 100%;
+  gap: 12px;
+  margin-top: 6px;
+  padding: 14px;
+  border: 1px solid var(--rule);
+  border-radius: 12px;
+  background: var(--card);
+}
+
+.remind-box .row > .btn {
+  flex: 1 1 160px;
+  min-height: 48px;
+  font-size: 15px;
+}
+
+.remind-box .when {
+  font-family: var(--mono);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--muted);
+}
+
+.remind-box .input {
+  flex: 1 1 200px;
+  height: 48px;
+}
+
+.remind-daily {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  font-size: 15px;
+  cursor: pointer;
+}
+
+.remind-daily input {
+  width: 20px;
+  height: 20px;
+  margin: 0;
+  accent-color: var(--ink);
+}
+
+.phone-remind {
+  margin-top: 20px;
+}
