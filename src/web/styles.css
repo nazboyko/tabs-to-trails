@@ -1284,6 +1284,33 @@ legend.step-head {
   background: var(--ink-soft);
 }
 
+/* A quiet ending: pale, with its label above the bar so it never meets the end time. */
+.timeline .seg.quiet {
+  background: var(--track);
+}
+
+.timeline.has-quiet {
+  padding-top: 22px;
+}
+
+.timeline.has-quiet .cue-line {
+  top: 16px;
+}
+
+.timeline.has-quiet .t,
+.timeline.has-quiet .cue-label {
+  top: 50px;
+}
+
+.timeline .quiet-label {
+  position: absolute;
+  top: 0;
+  transform: translateX(-50%);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
 .timeline .t {
   position: absolute;
   top: 28px;

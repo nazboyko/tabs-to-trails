@@ -51,6 +51,7 @@ export interface WalkPreview {
   minutes: number;
   targetMinutes: number | null;
   mode: 'full' | 'condensed';
+  quietMinutes: number;
 }
 
 export interface Meta {
@@ -117,7 +118,7 @@ export interface Segment {
   label: string;
   sectionId?: string;
   piece?: number;
-  role?: 'intro' | 'halfway' | 'threequarter' | 'bridge' | 'question' | 'outro';
+  role?: 'intro' | 'halfway' | 'threequarter' | 'bridge' | 'question' | 'quiet' | 'silence' | 'outro';
   start: number;
   end: number;
 }
@@ -144,6 +145,8 @@ export type WalkDetail =
         threeQuarter: AppLine | null;
         bridges: { piece: number; text: string; start: number }[];
         question: AppLine | null;
+        quiet: AppLine | null;
+        silence: { start: number | null; seconds: number } | null;
         outro: AppLine;
       };
       segments: Segment[];
@@ -225,18 +228,18 @@ export const api = {
   removeItem: (id: string) => call<unknown>(`/api/list/${id}`, { method: 'DELETE' }),
   reorder: (ids: string[]) =>
     call<unknown>('/api/list/order', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids }) }),
-  preview: (items: string[], minutes: number | null, voice: VoiceKey) =>
+  preview: (items: string[], minutes: number | null, voice: VoiceKey, quietMinutes = 0) =>
     call<WalkPreview>('/api/list/preview', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ items, minutes, voice }),
+      body: JSON.stringify({ items, minutes, voice, quietMinutes }),
     }),
   /** A walk from list items, in the order given. */
-  buildItems: (items: string[], minutes: number | null, voice: VoiceKey) =>
+  buildItems: (items: string[], minutes: number | null, voice: VoiceKey, quietMinutes = 0) =>
     call<{ id: string }>('/api/build', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ items, minutes, voice }),
+      body: JSON.stringify({ items, minutes, voice, quietMinutes }),
     }),
   retry: (id: string) => call<{ id: string }>(`/api/build/${id}/retry`, { method: 'POST' }),
   cancel: (id: string) => call<unknown>(`/api/build/${id}`, { method: 'DELETE' }),

@@ -39,18 +39,19 @@ function Timeline({ d }: { d: ReadyDetail }) {
   // Sections alternate in shade; in a playlist, whole pieces do.
   const shade = (seg: ReadyDetail['segments'][number]) =>
     d.pieces.length > 1 ? (seg.piece ?? 0) % 2 === 1 : !!seg.sectionId && order.indexOf(seg.sectionId) % 2 === 1;
+  const quietStretch = d.segments.find((s) => s.role === 'silence') ?? null;
   const cues = [
     { label: 'Halfway cue', start: d.app.halfway?.start ?? null },
     { label: '3/4 cue', start: d.app.threeQuarter?.start ?? null },
   ].filter((c): c is { label: string; start: number } => c.start !== null);
   return (
-    <div className="timeline">
+    <div className={`timeline${quietStretch ? ' has-quiet' : ''}`}>
       <div className="segs" aria-hidden="true">
         {d.segments.map((seg, i) => (
           <div
             key={i}
             title={seg.label}
-            className={`seg ${seg.kind === 'app' ? 'app' : 'src'}${shade(seg) ? ' alt' : ''}`}
+            className={`seg ${seg.role === 'silence' ? 'quiet' : seg.kind === 'app' ? 'app' : 'src'}${shade(seg) ? ' alt' : ''}`}
             style={{ flex: `${Math.max(seg.end - seg.start, 1)} 1 0` }}
           />
         ))}
@@ -61,6 +62,11 @@ function Timeline({ d }: { d: ReadyDetail }) {
       <div className="t" style={{ right: 0 }} aria-hidden="true">
         {clock(total)}
       </div>
+      {quietStretch && (
+        <div className="quiet-label" style={{ left: `${place((quietStretch.start + quietStretch.end) / 2, total)}%` }} aria-hidden="true">
+          quiet
+        </div>
+      )}
       {cues.map((c) => (
         <div key={c.label}>
           <div className="cue-line" style={{ left: `${place(c.start, total)}%` }} aria-hidden="true" />
@@ -84,9 +90,11 @@ function legend(d: ReadyDetail): string {
     'the halfway cue',
     d.app.threeQuarter ? 'the three-quarter cue' : '',
     d.app.question ? 'one question for the last stretch' : '',
+    d.app.quiet ? 'the line before the quiet stretch' : '',
   ].filter(Boolean);
   const source = d.pieces.length > 1 ? 'Green is the reading, one shade per piece.' : 'Green is the article.';
-  return `${source} Orange is the app talking: ${parts.join(', ')}, and the sign-off.`;
+  const quiet = d.app.silence ? ` The pale stretch near the end is ${Math.round(d.app.silence.seconds / 60)} ${Math.round(d.app.silence.seconds / 60) === 1 ? 'minute' : 'minutes'} of quiet.` : '';
+  return `${source} Orange is the app talking: ${parts.join(', ')}, and the sign-off.${quiet}`;
 }
 
 export function Ready({ detail: d, arrived = false }: { detail: ReadyDetail; arrived?: boolean }) {

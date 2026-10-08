@@ -21,6 +21,14 @@ const LENGTHS: { key: Length; label: string; hint: string }[] = [
   { key: 'whole', label: 'Everything', hint: 'Everything you tick, read in full. Nothing gets cut.' },
 ];
 
+type Quiet = '0' | '1' | '2' | '3';
+const QUIET: { key: Quiet; label: string }[] = [
+  { key: '0', label: 'Off' },
+  { key: '1', label: '1 min' },
+  { key: '2', label: '2 min' },
+  { key: '3', label: '3 min' },
+];
+
 const FALLBACK_VOICES: Voice[] = [
   { key: 'heart', name: 'Heart', accent: 'American' },
   { key: 'michael', name: 'Michael', accent: 'American' },
@@ -85,6 +93,7 @@ export function Home() {
   const [saving, setSaving] = useState(false);
   const [length, setLength] = useState<Length>(() => remembered('t2t-length', ['10', '20', '30', '45', '60', 'whole'] as const, '20'));
   const [voice, setVoice] = useState<VoiceKey>(() => remembered('t2t-voice', ['heart', 'michael', 'emma', 'george'] as const, 'heart'));
+  const [quiet, setQuiet] = useState<Quiet>(() => remembered('t2t-quiet', ['0', '1', '2', '3'] as const, '0'));
   const [voices, setVoices] = useState<Voice[]>(FALLBACK_VOICES);
   const [hear, setHear] = useState<'idle' | 'loading' | 'playing'>('idle');
   const [previewError, setPreviewError] = useState<string | null>(null);
@@ -185,6 +194,8 @@ export function Home() {
   }, [health?.ready, params]);
 
   const target = length === 'whole' ? null : Number(length);
+  // "Everything" has no target to end before, so it has no quiet ending.
+  const quietMinutes = target === null ? 0 : Number(quiet);
   const proposal = useMemo(() => pickWalk(items ?? [], target), [items, target]);
   const chosenIds = manual ? ticked : proposal;
   // The ticked rows in list order: the order the walk will play them.
@@ -202,7 +213,7 @@ export function Home() {
     }
     let stale = false;
     const timer = window.setTimeout(() => {
-      api.preview(ids, target, voice).then(
+      api.preview(ids, target, voice, quietMinutes).then(
         (p) => !stale && setWalkPreview(p),
         () => !stale && setWalkPreview(null),
       );
@@ -211,7 +222,7 @@ export function Home() {
       stale = true;
       window.clearTimeout(timer);
     };
-  }, [chosenKey, target, voice]);
+  }, [chosenKey, target, voice, quietMinutes]);
 
   if (!health) return <div className="page" aria-busy="true" />;
   if (!health.ready) return <Setup health={health} onReady={setHealth} />;
@@ -239,6 +250,11 @@ export function Home() {
     remember('t2t-length', l);
     // A new length makes a new proposal, over any ticks made by hand.
     setManual(false);
+  };
+
+  const pickQuiet = (q: Quiet) => {
+    setQuiet(q);
+    remember('t2t-quiet', q);
   };
 
   const pickVoice = (v: VoiceKey) => {
@@ -461,7 +477,7 @@ export function Home() {
     ids.sort((a, b) => order.indexOf(a) - order.indexOf(b));
     setBusy('Starting…');
     try {
-      const { id } = await api.buildItems(ids, length === 'whole' ? null : Number(length), voice);
+      const { id } = await api.buildItems(ids, target, voice, quietMinutes);
       navigate(`/walk/${id}`);
     } catch (err) {
       setBusy(null);
@@ -858,6 +874,11 @@ export function Home() {
                   : 'Tick what you want to hear.'}
             </p>
           )}
+          {shownPreview && shownPreview.quietMinutes > 0 && chosen.length > 0 && (
+            <p className="small quiet-line">
+              Then {shownPreview.quietMinutes === 1 ? 'a minute' : `${shownPreview.quietMinutes} minutes`} of quiet before the last chime.
+            </p>
+          )}
           {tooLittle && (
             <p className="small too-little">
               This is a {Math.max(1, Math.round(shownPreview!.minutes))}-minute walk. Add something, or pick a shorter length.
@@ -867,8 +888,22 @@ export function Home() {
           <details className="options">
             <summary>
               Options: voice {voiceName}
+              {target !== null && ` · quiet ending ${quiet === '0' ? 'off' : `${quiet} min`}`}
               <span className="chev" aria-hidden="true" />
             </summary>
+            {target !== null && (
+              <fieldset className="stack" style={{ gap: 10, marginTop: 12 }}>
+                <legend className="legend">Quiet ending</legend>
+                <div className="pills">
+                  {QUIET.map((q) => (
+                    <button key={q.key} type="button" className="pill" aria-pressed={quiet === q.key} onClick={() => pickQuiet(q.key)}>
+                      {q.label}
+                    </button>
+                  ))}
+                </div>
+                <p className="small">The reading ends early and you walk the rest in silence.</p>
+              </fieldset>
+            )}
             <fieldset className="stack" style={{ gap: 10, marginTop: 12 }}>
               <legend className="legend">Voice</legend>
               <div className="pills">

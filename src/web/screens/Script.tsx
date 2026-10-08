@@ -161,6 +161,16 @@ export function Script({ id }: { id: string }) {
       .filter((c) => !d.sections.some((s) => cueInside(s, c.line)))
       .map((c) => ({ kind: 'app' as const, label: c.label, line: c.line, start: c.line.start ?? 0 })),
     ...(d.app.question ? [{ kind: 'app' as const, label: 'a question for the last stretch', line: d.app.question, start: d.app.question.start ?? 0 }] : []),
+    ...(d.app.quiet && d.app.silence
+      ? [
+          {
+            kind: 'app' as const,
+            label: `going quiet, then ${Math.round(d.app.silence.seconds / 60) === 1 ? 'a minute' : `${Math.round(d.app.silence.seconds / 60)} minutes`} of silence`,
+            line: d.app.quiet,
+            start: d.app.quiet.start ?? 0,
+          },
+        ]
+      : []),
     { kind: 'app' as const, label: 'sign-off', line: d.app.outro, start: d.app.outro.start ?? d.meta.actualSeconds },
   ].sort((a, b) => a.start - b.start);
 
