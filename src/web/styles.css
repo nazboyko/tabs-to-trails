@@ -737,8 +737,8 @@ legend.step-head {
 }
 
 .your-walk li {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto 10em;
   align-items: baseline;
   gap: 4px 12px;
   padding: 10px 0;
@@ -747,9 +747,9 @@ legend.step-head {
 
 /* One long read: condense it into this walk, or make it a series of walks. */
 .series-choice {
+  grid-column: 1 / -1;
   display: flex;
   flex-wrap: wrap;
-  flex-basis: 100%;
   gap: 0 20px;
   margin: 0;
   padding: 0;
@@ -785,8 +785,6 @@ legend.step-head {
 }
 
 .your-walk .how {
-  flex: none;
-  min-width: 9.5em;
   font-size: 13px;
   color: var(--muted);
   text-align: right;
@@ -802,12 +800,11 @@ legend.step-head {
 
 @media (max-width: 480px) {
   .your-walk li {
-    flex-wrap: wrap;
+    grid-template-columns: minmax(0, 1fr) auto;
   }
 
   .your-walk .how {
-    min-width: 0;
-    flex-basis: 100%;
+    grid-column: 1 / -1;
     text-align: left;
   }
 }
