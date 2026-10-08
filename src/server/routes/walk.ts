@@ -9,12 +9,16 @@ import { encodeAudiobook } from '../audio/assemble.js';
 import { chaptersFrom, type Chapter } from '../audio/chapters.js';
 import type { Segment } from '../audio/timeline.js';
 import type { Timings } from '../audio/timings.js';
+import type { ListItem } from '../list/items.js';
+import type { WalkList } from '../list/store.js';
+import { dailyStarts, icsCalendar, reminderTitle, type Reminder } from '../remind/ics.js';
 import { HALFWAY_TEXT, OUTRO_TEXT, QUESTION_LEAD, requestSources, sectionAudioOf, timingsFor, type BuildRequest, type Meta, type Script, type SourceInfo, type VoiceState } from '../pipeline.js';
 import type { Plan } from '../script/budget.js';
 import { sectionLabel } from '../source/sections.js';
 import type { Jobs } from '../walks/jobs.js';
 import { lanAddress, qrDataUrl, shareUrl, tokenMatches } from '../walks/share.js';
-import { exists, isWalkId, listWalkIds, readJson, walkDir, writeJson } from '../walks/store.js';
+import { exists, isWalkId, listWalkIds, readJson, slugify, walkDir, writeJson } from '../walks/store.js';
+import type { WalkRecord } from '../walks/jobs.js';
 
 interface Timeline {
   seconds: number;
@@ -28,6 +32,59 @@ interface Timeline {
 /** The walk's chapters, as written into its files. */
 export function walkChapters(timeline: Timeline, meta: Meta): Chapter[] {
   return timeline.chapters ?? chaptersFrom(timeline.segments, timeline.seconds, (meta.pieces ?? []).map((p) => p.title));
+}
+
+/** The parts of this walk's series still waiting in the list, in order. */
+export async function seriesLeft(list: WalkList | undefined, record: WalkRecord | null, meta: Meta | null): Promise<ListItem[]> {
+  const first = record?.request.items?.[0];
+  if (!list || !meta?.series || !first) return [];
+  const walked = await list.get(first);
+  if (!walked?.seriesId) return [];
+  return (await list.all())
+    .filter((i) => i.seriesId === walked.seriesId && (i.part ?? 0) > meta.series!.part && i.status !== 'in_walk')
+    .sort((a, b) => (a.part ?? 0) - (b.part ?? 0));
+}
+
+/**
+ * The reminder: one event for this walk at `start`, and with `daily`, one a
+ * day at the same hour for each part of its series still waiting.
+ */
+export async function sendReminder(c: Context, id: string, jobs: Jobs, list?: WalkList, inline = false): Promise<Response> {
+  const start = new Date(c.req.query('start') ?? '');
+  const now = Date.now();
+  if (Number.isNaN(start.getTime()) || start.getTime() < now - 86_400_000 || start.getTime() > now + 366 * 86_400_000) {
+    return c.text('That time is not one a reminder can use.', 400);
+  }
+  const [meta, record] = await Promise.all([readJson<Meta>(walkDir(id), 'meta.json'), jobs.record(id)]);
+  if (!meta) return c.text('This walk is not finished yet.', 404);
+  const reminders: Reminder[] = [
+    {
+      uid: `${id}@tabs-to-trails`,
+      title: reminderTitle(meta.title, meta.actualSeconds),
+      start,
+      seconds: meta.actualSeconds,
+      description: `The walk is the MP3 ${meta.fileName}.`,
+    },
+  ];
+  if (c.req.query('daily') === '1') {
+    const rest = await seriesLeft(list, record, meta);
+    dailyStarts(start, rest.length).forEach((day, k) => {
+      const part = rest[k]!;
+      reminders.push({
+        uid: `${part.id}@tabs-to-trails`,
+        title: reminderTitle(`${part.title}, part ${part.part} of ${part.parts}`, part.minutes * 60),
+        start: day,
+        seconds: part.minutes * 60,
+        description: `Part ${part.part} is waiting in your walk list on the computer. Make it there before you go.`,
+      });
+    });
+  }
+  return c.body(icsCalendar(reminders), 200, {
+    'Content-Type': 'text/calendar; charset=utf-8',
+    // On a phone the calendar app opens the event itself; a computer saves the file.
+    'Content-Disposition': `${inline ? 'inline' : 'attachment'}; filename="${slugify(meta.title)}-reminder.ics"`,
+    'Cache-Control': 'no-store',
+  });
 }
 
 /** Read-along timings; walks made before them get theirs worked out once and kept. */
@@ -80,7 +137,7 @@ export async function walkSummary(id: string) {
 }
 
 /** Everything the Ready and Script screens show, read from the walk folder. */
-export async function walkDetail(id: string, jobs: Jobs, port: number) {
+export async function walkDetail(id: string, jobs: Jobs, port: number, list?: WalkList) {
   const dir = walkDir(id);
   const [meta, script, plan, timeline, info, record] = await Promise.all([
     readJson<Meta>(dir, 'meta.json'),
@@ -145,7 +202,7 @@ export async function walkDetail(id: string, jobs: Jobs, port: number) {
     leftOut: info?.leftOut ?? [],
     /** List items this walk took out of the waiting list. */
     closed: record.request.items?.length ?? 0,
-    series: meta.series ?? null,
+    series: meta.series ? { ...meta.series, left: (await seriesLeft(list, record, meta)).length } : null,
     pieces: meta.pieces ?? [],
     skipped: meta.skipped ?? [],
     share: url ? { url, qr: await qrDataUrl(url) } : null,
@@ -199,7 +256,7 @@ async function sendFile(c: Context, file: string, type: string, attachment: stri
   return c.body(stream, status, headers);
 }
 
-export function walkRoutes(jobs: Jobs) {
+export function walkRoutes(jobs: Jobs, list?: WalkList) {
   const port = () => loadConfig().PORT;
   return new Hono()
     .get('/', async (c) => {
@@ -220,7 +277,7 @@ export function walkRoutes(jobs: Jobs) {
     .get('/:id', async (c) => {
       const id = c.req.param('id');
       if (!isWalkId(id) || !(await jobs.record(id))) return c.json({ error: 'There is no walk with that id.' }, 404);
-      return c.json(await walkDetail(id, jobs, port()));
+      return c.json(await walkDetail(id, jobs, port(), list));
     })
     .get('/:id/audio', async (c) => {
       const id = c.req.param('id');
@@ -231,6 +288,11 @@ export function walkRoutes(jobs: Jobs) {
       const id = c.req.param('id');
       if (!isWalkId(id)) return c.text('Not found', 404);
       return sendAudiobook(c, id);
+    })
+    .get('/:id/remind.ics', async (c) => {
+      const id = c.req.param('id');
+      if (!isWalkId(id)) return c.text('Not found', 404);
+      return sendReminder(c, id, jobs, list);
     })
     .get('/:id/timings', async (c) => {
       const id = c.req.param('id');
@@ -250,7 +312,7 @@ export function walkRoutes(jobs: Jobs) {
 }
 
 /** The phone side: reachable from the local network, but only with the walk's token. */
-export function phoneRoutes(jobs: Jobs, phonePage: () => Promise<string | null>) {
+export function phoneRoutes(jobs: Jobs, phonePage: () => Promise<string | null>, list?: WalkList) {
   const allowed = async (c: Context): Promise<string | null> => {
     const id = c.req.param('id') ?? '';
     if (!isWalkId(id)) return null;
@@ -276,6 +338,7 @@ export function phoneRoutes(jobs: Jobs, phonePage: () => Promise<string | null>)
         actualSeconds: meta.actualSeconds,
         halfwaySeconds: meta.halfwaySeconds,
         threeQuarterSeconds: meta.threeQuarterSeconds ?? null,
+        series: meta.series ? { ...meta.series, left: (await seriesLeft(list, await jobs.record(id), meta)).length } : null,
         bytes: meta.bytes,
         fileName: meta.fileName,
         chapters: timeline.segments.filter((s) => s.kind === 'source').map((s) => ({ label: s.label, start: s.start })),
@@ -287,6 +350,10 @@ export function phoneRoutes(jobs: Jobs, phonePage: () => Promise<string | null>)
       const id = await allowed(c);
       if (!id) return c.text(expired, 404);
       return sendAudio(c, id, c.req.query('download') === '1');
+    })
+    .get('/:id/remind.ics', async (c) => {
+      const id = await allowed(c);
+      return id ? sendReminder(c, id, jobs, list, true) : c.text(expired, 404);
     })
     .get('/:id/timings', async (c) => {
       const id = await allowed(c);

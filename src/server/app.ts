@@ -43,7 +43,7 @@ function sameOrigin(origin: string | undefined, host: string | undefined): boole
 }
 
 /** The only paths the network may reach: the phone page, its data and audio, and static files. */
-const PUBLIC = /^\/w\/[a-f0-9]{12}(?:\/info|\/audio|\/audiobook|\/timings)?$|^\/assets\/[\w.-]+$|^\/favicon\.svg$/;
+const PUBLIC = /^\/w\/[a-f0-9]{12}(?:\/info|\/audio|\/audiobook|\/timings|\/remind\.ics)?$|^\/assets\/[\w.-]+$|^\/favicon\.svg$/;
 
 async function readOptional(file: string): Promise<string | null> {
   try {
@@ -114,8 +114,8 @@ export function createApp(jobs: Jobs, webDir = WEB_DIR, list = new WalkList()) {
   app.route('/api/voices', voiceRoutes);
   app.route('/api/build', buildRoutes(jobs, list));
   app.route('/api/list', listRoutes(list, jobs));
-  app.route('/api/walks', walkRoutes(jobs));
-  app.route('/w', phoneRoutes(jobs, () => readOptional(path.join(webDir, 'phone.html'))));
+  app.route('/api/walks', walkRoutes(jobs, list));
+  app.route('/w', phoneRoutes(jobs, () => readOptional(path.join(webDir, 'phone.html')), list));
 
   app.use('/assets/*', serveStatic({ root: path.relative(process.cwd(), webDir), onFound: (_p, c) => c.header('Cache-Control', 'public, max-age=31536000, immutable') }));
   app.get('/favicon.svg', serveStatic({ path: path.relative(process.cwd(), path.join(webDir, 'favicon.svg')) }));
