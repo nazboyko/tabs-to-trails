@@ -52,6 +52,12 @@ details summary { cursor: pointer; font-weight: 600; min-height: 44px; display: 
 .script p { margin: 12px 0 0; }
 .script .app { padding: 10px 12px; background: var(--orange-soft); border-radius: 8px; }
 .script .t { display: block; font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 13px; color: var(--orange-text); font-weight: 500; }
+.readalong { position: relative; }
+.script a.s { color: inherit; text-decoration: none; border-radius: 4px; padding: 1px 2px; -webkit-box-decoration-break: clone; box-decoration-break: clone; }
+.script a.s:hover { background: rgba(30, 58, 43, 0.06); }
+.script a.s.on { background: #DFEADF; box-shadow: inset 0 -2px 0 var(--ink); }
+.script .app a.s.on { background: #F6DCC8; box-shadow: inset 0 -2px 0 var(--orange-text); }
+.script .h .t { color: var(--ink); }
 .local { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; }
 .local div { padding: 18px 20px; border: 1px solid var(--rule); border-radius: 14px; }
 .local strong { display: block; }
@@ -123,5 +129,6 @@ code { font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 15px; 
     <p>Tabs to Trails, MIT license. Built for the DEV Hacktoberfest Open-Source AI Challenge 2026, Week 1 "Touch Grass". Credits for Gemma, Kokoro, the libraries and the fonts are in the <a href="{{repo}}#credits">README</a>. The Thoreau sample reads a public-domain text.</p>
   </div>
 </footer>
+<script src="readalong.js" defer></script>
 </body>
 </html>
