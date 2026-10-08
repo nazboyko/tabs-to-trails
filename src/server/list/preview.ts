@@ -44,24 +44,36 @@ export function seriesFor(piece: Piece, minutes: number, wpm: number): Section[]
 /** A piece this many times longer than the walk is offered as a series. */
 export const SERIES_FACTOR = 2;
 
-export function previewFrom(pieces: Piece[], ids: string[], minutes: number | null, wpm: number, quietMinutes = 0): WalkPreview {
+/**
+ * `pieceWpm` is each piece's own pace (its row's pace); without it every
+ * piece is read at `wpm`. A piece's full minutes here are its row's minutes.
+ */
+export function previewFrom(
+  pieces: Piece[],
+  ids: string[],
+  minutes: number | null,
+  wpm: number,
+  quietMinutes = 0,
+  pieceWpm: number[] = pieces.map(() => wpm),
+): WalkPreview {
   const { info, sections } = walkSource(pieces, []);
   const quiet = minutes === null ? 0 : quietMinutes;
-  const { plan } = firstPlan(info, sections, minutes, wpm, quiet);
-  const seconds = (words: number, count: number) => wordsToSeconds(words, wpm) + Math.max(0, count - 1) * SECTION_GAP;
+  const { plan } = firstPlan(info, sections, minutes, wpm, quiet, pieceWpm);
+  const seconds = (words: number, count: number, pace: number) => wordsToSeconds(words, pace) + Math.max(0, count - 1) * SECTION_GAP;
+  let content = 0;
   const out = pieces.map((p, i) => {
     const own = plan.sections.filter((s) => (s.piece ?? 0) === i);
     const full = own.reduce((n, s) => n + s.fullWords, 0);
     const planned = own.reduce((n, s) => n + s.targetWords, 0);
+    content += wordsToSeconds(planned, pieceWpm[i] ?? wpm);
     return {
       id: ids[i] ?? '',
       title: p.doc.title,
-      fullMinutes: round(seconds(full, own.length) / 60),
-      minutes: round(seconds(planned, own.length) / 60),
+      fullMinutes: round(seconds(full, own.length, pieceWpm[i] ?? wpm) / 60),
+      minutes: round(seconds(planned, own.length, pieceWpm[i] ?? wpm) / 60),
       treatment: own.every((s) => s.treatment === 'full') ? ('full' as const) : ('condensed' as const),
     };
   });
-  const content = plan.sections.reduce((n, s) => n + s.targetWords, 0);
-  const total = plan.mode === 'full' ? plan.fullSeconds : wordsToSeconds(content, wpm) + plan.fixedSeconds;
+  const total = plan.mode === 'full' ? plan.fullSeconds : content + plan.fixedSeconds;
   return { pieces: out, minutes: round(total / 60), targetMinutes: minutes, mode: plan.mode, quietMinutes: quiet };
 }

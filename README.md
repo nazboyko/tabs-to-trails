@@ -34,7 +34,7 @@ To get a walk onto your phone, keep the phone on the same Wi-Fi as the computer 
 ## Using it
 
 1. **Save.** Paste links (one per line), some text or a .md or .txt file and press "Save for a walk", or drag "Walk this tab" to the bookmarks bar and click it on an article. Each link is fetched once, when you save it, and kept on this computer. A page behind a login shows "couldn't read" with "Paste the text instead" on its row.
-2. **Pick a length.** 10 to 60 minutes, or Everything. The app ticks the rows that fit: the next part of a series first, then the oldest saved, as long as the total stays within the length plus 5%. "Your walk" shows how each piece will be read: in full, condensed from 27 minutes, or part 1 of 3, and how it adds up ("about 19 min for 20"). Tick or untick a row and the app keeps your choice. It does not pad: a short pick says "This is a 12-minute walk."
+2. **Pick a length.** 10 to 60 minutes, or Everything. The app ticks the rows that fit: the next part of a series first, then the oldest saved, as long as the total stays within the length plus 5%. If that fills less than 80% of the walk, it takes the set of up to 8 rows that comes closest to the length instead, keeping a next series part in it. Every row's minutes and the panel's minutes come from the chosen voice's measured pace, so the same piece shows the same number in both. "Your walk" shows how each piece will be read: in full, condensed from 27 minutes, or part 1 of 3, and how it adds up ("about 19 min for 20"). Tick or untick a row and the app keeps your choice. It does not pad: a short pick says "This is a 12-minute walk."
 3. **Make the walk.** A few minutes later the Ready screen shows the measured length, the QR code and two downloads, MP3 and audiobook. The rows that went in leave the list ("2 tabs closed.").
 
 A piece more than twice as long as the walk can become a series: "Split into 3 walks" puts three part rows in its place, and each part is its own walk that ends with "Part 2 is waiting for your next walk." Under Options there is a quiet ending: the reading stops one to three minutes early, says so, and you walk the rest in silence until the last chime. "Remind me" on the Ready screen makes a calendar file for your own calendar.
@@ -104,7 +104,6 @@ Use it for documents you are allowed to process on your own machine.
 - English only. The four voices are English, and the prompts are written for English text.
 - Pages behind a login or built by scripts cannot be read. Paste the text instead.
 - The length is planned, then measured; it is not exact. A source shorter than the walk is not padded: you get the shorter walk, and the screen says so.
-- Picking is first fit in saved order, which is easy to follow but not the best fit: in one test it proposed 12 minutes for 20 where a later row alone would have made 19. Tick by hand when it matters.
 - A series cuts at section ends, so the parts are not even, and an hour of Wikipedia at 20 minutes made four parts, not three.
 - Chapters and the audiobook file were checked with ffmpeg and macOS's own audio tools, not yet on a phone's audiobook app. Whether a phone takes the reminder file over plain http on the home Wi-Fi is not tested yet.
 - The phone and the computer need the same Wi-Fi once, to get the file across.

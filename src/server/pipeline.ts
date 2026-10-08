@@ -267,11 +267,21 @@ export function firstPlan(
   minutes: number | null,
   wpm: number,
   quietMinutes = 0,
+  pieceWpm?: number[],
 ): { plan: Plan; input: PlanInput } {
   const targetSeconds = minutes === null ? null : minutes * 60;
   const quiet = minutes === null ? 0 : quietMinutes;
-  const input = { sections, targetSeconds, wpm, fixedSeconds: fixedSecondsEstimate(info, wpm, targetSeconds, quiet) };
+  const input = { sections, targetSeconds, wpm, fixedSeconds: fixedSecondsEstimate(info, wpm, targetSeconds, quiet), pieceWpm };
   return { plan: planWalk(input), input };
+}
+
+/**
+ * One pace everywhere: each piece's pace is the voice's measured characters
+ * per second over that piece's own characters per word, the same pace its row
+ * in the walk list shows.
+ */
+export function piecePaces(info: SourceInfo, sections: Section[], pace: (charsPerWord: number) => number): number[] {
+  return Array.from({ length: info.pieces?.length ?? 1 }, (_, p) => pace(charsPerWord(sections.filter((s) => (s.piece ?? 0) === p))));
 }
 
 export function fixedSecondsEstimate(info: SourceInfo, wpm: number, targetSeconds: number | null, quietMinutes = 0): number {
@@ -330,7 +340,7 @@ async function stagePlan(dir: string, req: BuildRequest, info: SourceInfo, secti
   if (saved && savedSections) return { plan: saved, planSections: savedSections };
   const cal = await calibration(req.voice);
   const wpm = effectiveWpm(cal, charsPerWord(sections));
-  const first = firstPlan(info, sections, req.minutes, wpm, quietMinutesOf(req));
+  const first = firstPlan(info, sections, req.minutes, wpm, quietMinutesOf(req), piecePaces(info, sections, (cpw) => effectiveWpm(cal, cpw)));
   const input = first.input;
   let plan = first.plan;
   let planSections = sections;

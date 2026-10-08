@@ -95,6 +95,9 @@ export function Home() {
   const [length, setLength] = useState<Length>(() => remembered('t2t-length', ['10', '20', '30', '45', '60', 'whole'] as const, '20'));
   const [voice, setVoice] = useState<VoiceKey>(() => remembered('t2t-voice', ['heart', 'michael', 'emma', 'george'] as const, 'heart'));
   const [quiet, setQuiet] = useState<Quiet>(() => remembered('t2t-quiet', ['0', '1', '2', '3'] as const, '0'));
+  // The list's minutes follow the chosen voice; async refreshes read it from here.
+  const voiceRef = useRef(voice);
+  voiceRef.current = voice;
   const [voices, setVoices] = useState<Voice[]>(FALLBACK_VOICES);
   const [hear, setHear] = useState<'idle' | 'loading' | 'playing'>('idle');
   const [previewError, setPreviewError] = useState<string | null>(null);
@@ -124,7 +127,7 @@ export function Home() {
   };
 
   const refresh = async (): Promise<ListItem[]> => {
-    const { items: next } = await api.list();
+    const { items: next } = await api.list(voiceRef.current);
     announceChecks(shownItems.current, next);
     show(next);
     return next;
@@ -153,6 +156,17 @@ export function Home() {
     return () => audioRef.current?.pause();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Another voice reads at another pace: the rows' minutes are asked for again.
+  const firstVoice = useRef(true);
+  useEffect(() => {
+    if (firstVoice.current) {
+      firstVoice.current = false;
+      return;
+    }
+    void refresh().catch(() => undefined);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [voice]);
 
   // While a row says "Checking...", ask again every second.
   const checking = items?.some((i) => i.status === 'checking') ?? false;

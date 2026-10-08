@@ -13,17 +13,22 @@ import { readSource, type SavedInput, type SourceInput } from '../source/index.j
 import { pieceSections, readPieces, sourceLabel, type Piece } from '../source/pieces.js';
 import { SourceError, type SourceDoc } from '../source/types.js';
 import { isWalkId, newId, readJson, writeFileAtomic, writeJson } from '../walks/store.js';
-import { checked, DEFAULT_WPM, linkKey, MAX_CHECKS, ordered, reorder, unreadable, type ListItem } from './items.js';
+import { checked, DEFAULT_WPM, linkKey, MAX_CHECKS, minutesAt, ordered, reorder, rowPace, unreadable, type ListItem } from './items.js';
 import { previewFrom, SERIES_FACTOR, seriesFor, type WalkPreview } from './preview.js';
 import { partMarkdown } from './series.js';
 import { estimateMinutes as minutesOf } from './items.js';
 
 export type ReadFn = (input: SourceInput, signal?: AbortSignal) => Promise<SourceDoc>;
 
-/** The pace minutes are estimated with: the default voice's measured pace, or a plain default. */
+/** The pace minutes are estimated with: the voice's measured pace, or a plain default before it was ever measured. */
 export async function listWpm(voice: VoiceKey, sectionsCharsPerWord: number): Promise<number> {
+  return (await paceOf(voice))(sectionsCharsPerWord);
+}
+
+/** One voice's pace as a function of characters per word, read once. */
+export async function paceOf(voice: VoiceKey): Promise<(charsPerWord: number) => number> {
   const cal = await storedCalibration(voice).catch(() => null);
-  return cal ? effectiveWpm(cal, sectionsCharsPerWord) : DEFAULT_WPM;
+  return (cpw) => (cal ? effectiveWpm(cal, cpw) : DEFAULT_WPM);
 }
 
 export class WalkList {
@@ -67,6 +72,35 @@ export class WalkList {
   private async put(item: ListItem): Promise<void> {
     await fs.mkdir(this.dir(item.id), { recursive: true });
     await writeJson(this.dir(item.id), 'item.json', item);
+  }
+
+  /**
+   * Every row's minutes at this voice's pace: the same number the "Your walk"
+   * panel shows for that piece. A row saved before rows kept their figures
+   * gets them worked out once from its source.
+   */
+  async withMinutes(items: ListItem[], voice: VoiceKey): Promise<ListItem[]> {
+    const pace = await paceOf(voice);
+    const out: ListItem[] = [];
+    for (const item of items) {
+      if (item.status === 'checking' || item.status === 'unreadable' || !item.doc) {
+        out.push(item);
+        continue;
+      }
+      let figures = item.pace;
+      if (!figures) {
+        const [piece] = await this.pieces([item.id]).catch(() => []);
+        if (piece) {
+          figures = rowPace(piece.sections, charsPerWord(piece.sections));
+          await this.serial(async () => {
+            const now = await this.get(item.id);
+            if (now) await this.put({ ...now, pace: figures });
+          }).catch(() => undefined);
+        }
+      }
+      out.push(figures ? { ...item, pace: figures, minutes: minutesAt(figures, pace(figures.charsPerWord)) } : item);
+    }
+    return out;
   }
 
   /** Every item, in list order. */
@@ -138,7 +172,8 @@ export class WalkList {
     await fs.mkdir(this.dir(item.id), { recursive: true });
     await writeFileAtomic(path.join(this.dir(item.id), 'source.md'), doc.markdown);
     const saved = { kind: doc.kind, title: doc.title, url: doc.url, byline: doc.byline, leftOut: [...(doc.leftOut ?? []), ...dropped] };
-    return checked(item, saved, sections, await this.wpm(charsPerWord(sections)), new Date().toISOString());
+    const cpw = charsPerWord(sections);
+    return checked(item, saved, sections, await this.wpm(cpw), new Date().toISOString(), cpw);
   }
 
   /** Pasted text in place of a row that could not be read. The row keeps its place and its link. */
@@ -205,14 +240,17 @@ export class WalkList {
   /** The panel's plan for these items and this length, at the pace minutes are estimated with. */
   async preview(ids: string[], minutes: number | null, voice: VoiceKey, quietMinutes = 0): Promise<WalkPreview> {
     const pieces = await this.pieces(ids);
-    const wpm = await listWpm(voice, charsPerWord(walkSource(pieces, []).sections));
-    const preview = previewFrom(pieces, ids, minutes, wpm, quietMinutes);
+    const pace = await paceOf(voice);
+    const wpm = pace(charsPerWord(walkSource(pieces, []).sections));
+    // Each piece at its own pace, as the build plans it and as its row shows it.
+    const pieceWpm = pieces.map((p) => pace(charsPerWord(p.sections)));
+    const preview = previewFrom(pieces, ids, minutes, wpm, quietMinutes, pieceWpm);
     // A piece much longer than the walk can become a series instead of being squeezed.
     if (minutes !== null) {
       for (const [i, p] of preview.pieces.entries()) {
         const item = await this.get(ids[i]!);
         if (item?.parts || p.fullMinutes <= minutes * SERIES_FACTOR) continue;
-        const parts = seriesFor(pieces[i]!, minutes, wpm).length;
+        const parts = seriesFor(pieces[i]!, minutes, pieceWpm[i]!).length;
         if (parts > 1) p.splitParts = parts;
       }
     }
@@ -239,6 +277,7 @@ export class WalkList {
         id: newId(),
         words: part.reduce((w, s) => w + s.words, 0),
         minutes: minutesOf(part, wpm),
+        pace: rowPace(part, charsPerWord(part)),
         status: 'ready',
         walkId: undefined,
         seriesId: item.id,

@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
-import { VOICE_KEYS } from '../config.js';
+import { loadConfig, VOICE_KEYS, type VoiceKey } from '../config.js';
 import { MAX_PIECES } from '../source/pieces.js';
 import { viewStatus, type ListItem } from '../list/items.js';
 import type { WalkList } from '../list/store.js';
@@ -31,12 +31,12 @@ export const PreviewBody = z.object({
   quietMinutes: z.union([z.literal(0), z.literal(1), z.literal(2), z.literal(3)]).optional(),
 });
 
-export type ItemView = Omit<ListItem, 'doc' | 'walkId' | 'checkedAt'>;
+export type ItemView = Omit<ListItem, 'doc' | 'walkId' | 'checkedAt' | 'pace'>;
 
 /** What the page sees of an item: no stored doc, and the status as it stands now. */
 export async function view(item: ListItem, jobs: Jobs): Promise<ItemView> {
   const state = item.walkId ? ((await jobs.status(item.walkId).catch(() => null))?.state ?? null) : null;
-  const { doc: _doc, walkId: _walk, checkedAt: _checked, ...rest } = item;
+  const { doc: _doc, walkId: _walk, checkedAt: _checked, pace: _pace, ...rest } = item;
   return { ...rest, status: viewStatus(item, state) };
 }
 
@@ -46,7 +46,10 @@ const BAD = 'That request is missing something. Reload the page and try again.';
 export function listRoutes(list: WalkList, jobs: Jobs) {
   return new Hono()
     .get('/', async (c) => {
-      const items = await Promise.all((await list.all()).map((i) => view(i, jobs)));
+      // Minutes at the pace of the voice the page has chosen, the same as its "Your walk" panel.
+      const asked = c.req.query('voice');
+      const voice: VoiceKey = (VOICE_KEYS as readonly string[]).includes(asked ?? '') ? (asked as VoiceKey) : loadConfig().VOICE;
+      const items = await Promise.all((await list.withMinutes(await list.all(), voice)).map((i) => view(i, jobs)));
       // Items that went into a walk leave the list; one whose walk failed or was cancelled is back.
       return c.json({ items: items.filter((i) => i.status !== 'in_walk') });
     })

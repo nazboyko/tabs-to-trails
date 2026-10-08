@@ -3,7 +3,7 @@
  * status, so the rules are tested without a folder or a network.
  */
 
-import { planWalk } from '../script/budget.js';
+import { planWalk, SECTION_GAP, wordsToSeconds } from '../script/budget.js';
 import type { Section } from '../source/sections.js';
 import type { SourceKind } from '../source/types.js';
 
@@ -30,6 +30,8 @@ export interface ListItem {
   words: number;
   /** Read in full, at the voice's measured pace. */
   minutes: number;
+  /** What the minutes are worked out from, for any voice: the planner's words, characters per word, sections. */
+  pace?: RowPace;
   status: ItemStatus;
   /** Why a row could not be read, in words for the person. */
   reason?: string;
@@ -43,6 +45,12 @@ export interface ListItem {
   doc?: SavedDoc;
 }
 
+export interface RowPace {
+  fullWords: number;
+  charsPerWord: number;
+  sections: number;
+}
+
 /** Words per minute before the voice has ever been measured. */
 export const DEFAULT_WPM = 165;
 
@@ -53,6 +61,17 @@ export const MAX_CHECKS = 3;
 export function estimateMinutes(sections: Section[], wpm: number): number {
   const plan = planWalk({ sections, targetSeconds: null, wpm, fixedSeconds: 0 });
   return Math.round((plan.fullSeconds / 60) * 10) / 10;
+}
+
+/** The figures a row keeps, so its minutes can be worked out for whichever voice is chosen. */
+export function rowPace(sections: Section[], charsPerWord: number): RowPace {
+  const plan = planWalk({ sections, targetSeconds: null, wpm: DEFAULT_WPM, fixedSeconds: 0 });
+  return { fullWords: plan.fullWords, charsPerWord, sections: sections.length };
+}
+
+/** A row's minutes at a pace: the same sum as `estimateMinutes` and as the panel's minutes for that piece. */
+export function minutesAt(pace: RowPace, wpm: number): number {
+  return Math.round(((wordsToSeconds(pace.fullWords, wpm) + Math.max(0, pace.sections - 1) * SECTION_GAP) / 60) * 10) / 10;
 }
 
 /** A link in a form two saves of the same page share: no fragment, no trailing slash, no "www.". */
@@ -94,7 +113,7 @@ export function ordered(order: string[], present: string[]): string[] {
 }
 
 /** The row a fresh check turns into. */
-export function checked(item: ListItem, doc: SavedDoc, sections: Section[], wpm: number, now: string): ListItem {
+export function checked(item: ListItem, doc: SavedDoc, sections: Section[], wpm: number, now: string, charsPerWord = 0): ListItem {
   const words = sections.reduce((n, s) => n + s.words, 0);
   return {
     ...item,
@@ -102,6 +121,7 @@ export function checked(item: ListItem, doc: SavedDoc, sections: Section[], wpm:
     url: doc.url ?? item.url,
     words,
     minutes: estimateMinutes(sections, wpm),
+    pace: rowPace(sections, charsPerWord),
     status: 'ready',
     reason: undefined,
     checkedAt: now,
@@ -110,5 +130,5 @@ export function checked(item: ListItem, doc: SavedDoc, sections: Section[], wpm:
 }
 
 export function unreadable(item: ListItem, reason: string, now: string): ListItem {
-  return { ...item, status: 'unreadable', reason, checkedAt: now, words: 0, minutes: 0, doc: undefined };
+  return { ...item, status: 'unreadable', reason, checkedAt: now, words: 0, minutes: 0, doc: undefined, pace: undefined };
 }

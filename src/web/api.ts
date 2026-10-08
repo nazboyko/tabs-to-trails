@@ -231,7 +231,8 @@ export const api = {
       body: JSON.stringify(sources.length === 1 ? { source: sources[0], minutes, voice } : { sources, minutes, voice }),
     }),
   timings: (id: string) => call<Timings>(`/api/walks/${id}/timings`),
-  list: () => call<{ items: ListItem[] }>('/api/list'),
+  /** Rows with their minutes at this voice's pace. */
+  list: (voice: VoiceKey) => call<{ items: ListItem[] }>(`/api/list?voice=${voice}`),
   save: (sources: SourcePayload[]) =>
     call<{ added: ListItem[]; existing: ListItem[] }>('/api/list', {
       method: 'POST',

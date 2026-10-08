@@ -103,6 +103,11 @@ export interface PlanInput {
   fixedSeconds: number;
   /** Importance 1-5 per section id; missing ids count as 3. */
   scores?: Record<string, number>;
+  /**
+   * Each piece's own pace (index = piece): the voice's measured characters per
+   * second over that piece's characters per word. Missing means `wpm`.
+   */
+  pieceWpm?: number[];
 }
 
 /**
@@ -203,7 +208,13 @@ export function planWalk(input: PlanInput): Plan {
     return { id: s.id, heading: s.heading, part: s.part, sourceWords, fullWords, adapted, score, piece: s.piece ?? 0 };
   });
   const fullWords = base.reduce((n, s) => n + s.fullWords, 0);
-  const fullSeconds = wordsToSeconds(fullWords, wpm) + fixedSeconds;
+  const pieceCount = Math.max(0, ...base.map((s) => s.piece)) + 1;
+  const pieceFull = Array.from({ length: pieceCount }, (_, p) => base.filter((s) => s.piece === p).reduce((n, s) => n + s.fullWords, 0));
+  const paces = Array.from({ length: pieceCount }, (_, p) => input.pieceWpm?.[p] ?? wpm);
+  // One pace for all (every single-source walk): the plan is worked out in words, as it always was.
+  const onePace = paces.every((x) => x === wpm);
+  const pieceSeconds = pieceFull.map((w, p) => wordsToSeconds(w, paces[p]!));
+  const fullSeconds = (onePace ? wordsToSeconds(fullWords, wpm) : pieceSeconds.reduce((a, b) => a + b, 0)) + fixedSeconds;
 
   const asFull = (): PlanSection[] =>
     base.map((s) => ({ ...s, treatment: 'full', targetWords: s.fullWords, coverage: 'Full' }));
@@ -213,18 +224,24 @@ export function planWalk(input: PlanInput): Plan {
   }
 
   const contentSeconds = Math.max(30, targetSeconds - fixedSeconds - MARGIN_SECONDS);
-  const budgetWords = Math.floor((contentSeconds * wpm) / 60);
-  if (fullWords <= budgetWords * 1.05) {
+  // Each piece gets time in proportion to its full length (in seconds, at its own pace),
+  // then shares it out among its own sections by length and importance.
+  const fullContent = fullSeconds - fixedSeconds;
+  const pieces: PieceBudget[] = pieceFull.map((full, p) => ({
+    fullWords: full,
+    budgetWords: onePace
+      ? fullWords > 0
+        ? Math.floor((Math.floor((contentSeconds * wpm) / 60) * full) / fullWords)
+        : 0
+      : fullContent > 0
+        ? Math.floor((contentSeconds * (pieceSeconds[p]! / fullContent) * paces[p]!) / 60)
+        : 0,
+  }));
+  const budgetWords = onePace ? Math.floor((contentSeconds * wpm) / 60) : pieces.reduce((n, pb) => n + pb.budgetWords, 0);
+  if (onePace ? fullWords <= budgetWords * 1.05 : fullContent <= contentSeconds * 1.05) {
     return { mode: 'full', targetSeconds, wpm, fixedSeconds, budgetWords, fullWords, fullSeconds, tooLong: false, sections: asFull() };
   }
 
-  // Each piece gets time in proportion to its full length, then shares it out
-  // among its own sections by length and importance.
-  const pieceCount = Math.max(...base.map((s) => s.piece)) + 1;
-  const pieces: PieceBudget[] = Array.from({ length: pieceCount }, (_, p) => {
-    const full = base.filter((s) => s.piece === p).reduce((n, s) => n + s.fullWords, 0);
-    return { fullWords: full, budgetWords: fullWords > 0 ? Math.floor((budgetWords * full) / fullWords) : 0 };
-  });
   const targets = new Array<number>(base.length).fill(0);
   const mention = new Array<boolean>(base.length).fill(false);
   pieces.forEach((pb, p) => {

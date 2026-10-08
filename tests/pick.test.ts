@@ -124,7 +124,7 @@ describe('the panel and the walk agree', () => {
       const saved = await Promise.all(ids.map((id, i) => list.copyInto(id, dir, `saved-${i + 1}.md`)));
       const { pieces } = await readPieces(saved, sourceReader(dir));
       const { info, sections } = walkSource(pieces, []);
-      const { plan } = firstPlan(info, sections, minutes, DEFAULT_WPM);
+      const { plan } = firstPlan(info, sections, minutes, DEFAULT_WPM, 0, [DEFAULT_WPM, DEFAULT_WPM]);
       expect(panel.mode).toBe(plan.mode);
       // The panel may also offer a series for a long piece; the plan itself is the build's.
       const plain = { ...panel, pieces: panel.pieces.map(({ splitParts: _offer, ...p }) => p) };
@@ -142,3 +142,53 @@ describe('the panel and the walk agree', () => {
     expect(everything.pieces[1]!.fullMinutes).toBeCloseTo(700 / DEFAULT_WPM, 1);
   });
 });
+
+describe('one pace everywhere', () => {
+  let tmp: string;
+  beforeAll(async () => {
+    // The walks folder this test file's config already points at (it is read once per file).
+    const { loadConfig } = await import('../src/server/config.js');
+    tmp = loadConfig().WALKS_DIR;
+    await fs.mkdir(tmp, { recursive: true });
+    const { VOICES, DTYPE } = await import('../src/server/audio/kokoro.js');
+    // A measured voice: 15 characters a second.
+    await fs.writeFile(
+      path.join(tmp, '.calibration.json'),
+      JSON.stringify({ [`${VOICES.heart.id}@${DTYPE}`]: { voice: VOICES.heart.id, dtype: DTYPE, words: 250, chars: 1400, seconds: 93.3, wordsPerMinute: 160.8, charsPerSecond: 15, measuredAt: '2026-10-07T00:00:00Z' } }),
+    );
+  });
+  afterAll(async () => {
+    await fs.rm(tmp, { recursive: true, force: true });
+  });
+
+  const read: ReadFn = async (input: SourceInput) => {
+    if (input.kind !== 'text') throw new Error('unexpected');
+    return { kind: 'text', title: input.title ?? 'your pasted text', markdown: input.text };
+  };
+
+  it("shows a row's minutes and the same piece's minutes in the panel as one number, at the chosen voice's pace", async () => {
+    const list = new WalkList(path.join(tmp, 'list'), read, async () => DEFAULT_WPM);
+    // Two sources with different word lengths, so one blended pace would give each a different number.
+    const short = Array.from({ length: 1400 }, (_, i) => (i % 10 === 9 ? 'a.' : 'a')).join(' ');
+    const long = Array.from({ length: 1600 }, (_, i) => (i % 10 === 9 ? 'extraordinarily.' : 'extraordinarily')).join(' ');
+    const { added } = await list.add([
+      { kind: 'text', title: 'Short words', text: short },
+      { kind: 'text', title: 'Long words', text: long },
+    ]);
+    const ids = added.map((i) => i.id);
+    const rows = await list.withMinutes(await list.all(), 'heart');
+    for (const minutes of [null, 20, 60] as const) {
+      const panel = await list.preview(ids, minutes, 'heart');
+      expect(panel.pieces.map((p) => p.fullMinutes)).toEqual(rows.map((r) => r.minutes));
+      for (const p of panel.pieces) if (p.treatment === 'full') expect(p.minutes).toBe(p.fullMinutes);
+    }
+    // The two rows read at clearly different paces, and neither is the plain default.
+    expect(rows[0]!.minutes).not.toBe(estimateAt(rows[0]!.words, DEFAULT_WPM));
+    expect(rows[1]!.minutes / rows[1]!.words).toBeGreaterThan((rows[0]!.minutes / rows[0]!.words) * 3);
+  });
+});
+
+/** Minutes for a number of words at a plain words-per-minute pace. */
+function estimateAt(words: number, wpm: number): number {
+  return Math.round((words / wpm) * 10) / 10;
+}
