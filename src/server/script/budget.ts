@@ -32,6 +32,14 @@ export interface PlanSection {
   treatment: Treatment;
   targetWords: number;
   coverage: Coverage;
+  /** Piece of a multi-source walk; 0 (or absent, in older plans) for a single source. */
+  piece?: number;
+}
+
+export interface PieceBudget {
+  fullWords: number;
+  /** The piece's share of the word budget, in proportion to its full length. */
+  budgetWords: number;
 }
 
 export interface Plan {
@@ -46,6 +54,8 @@ export interface Plan {
   tooLong: boolean;
   /** True when the model's importance scores shaped the budgets. */
   scored?: boolean;
+  /** Per-piece budgets of a condensed walk, index = piece. */
+  pieces?: PieceBudget[];
   sections: PlanSection[];
 }
 
@@ -131,11 +141,15 @@ export function allocate(weights: number[], caps: number[], budget: number): num
 export function carriedTarget(plan: Plan, index: number, wordsSoFar: number): number {
   const s = plan.sections[index]!;
   if (plan.mode !== 'condensed' || s.treatment !== 'condensed' || plan.budgetWords === null) return s.targetWords;
-  const rest = plan.sections.slice(index);
+  // Carry-over stays inside the piece: one piece of a playlist cannot eat another's time.
+  // `wordsSoFar` counts only the sections of the same piece written so far.
+  const piece = s.piece ?? 0;
+  const budget = plan.pieces?.[piece]?.budgetWords ?? plan.budgetWords;
+  const rest = plan.sections.slice(index).filter((r) => (r.piece ?? 0) === piece);
   const fixed = rest.filter((r) => r.treatment !== 'condensed').reduce((n, r) => n + r.targetWords, 0);
   const flexible = rest.filter((r) => r.treatment === 'condensed').reduce((n, r) => n + r.targetWords, 0);
   if (flexible <= 0) return s.targetWords;
-  const scale = (plan.budgetWords - wordsSoFar - fixed) / flexible;
+  const scale = (budget - wordsSoFar - fixed) / flexible;
   const target = Math.round(s.targetWords * Math.min(1.5, Math.max(0.3, scale)));
   return Math.min(s.fullWords, Math.max(MENTION_WORDS, target));
 }
@@ -174,7 +188,7 @@ export function groupSections(sections: Section[], budgetWords: number): Section
       i === 0 || sameHeading ? m.blocks : [{ kind: 'prose' as const, text: `${sectionLabel(m)}.` }, ...m.blocks],
     );
     const words = blocks.reduce((n, b) => n + blockWords(b), 0);
-    return { id: first.id, heading, level: first.level, words, blocks };
+    return { id: first.id, heading, level: first.level, words, blocks, piece: first.piece };
   });
 }
 
@@ -186,7 +200,7 @@ export function planWalk(input: PlanInput): Plan {
     const sourceWords = s.blocks.filter((b) => !adaptedKind(b)).reduce((n, b) => n + fullBlockWords(b), 0);
     const fullWords = s.blocks.reduce((n, b) => n + fullBlockWords(b), 0);
     const score = Math.min(5, Math.max(1, Math.round(input.scores?.[s.id] ?? 3)));
-    return { id: s.id, heading: s.heading, part: s.part, sourceWords, fullWords, adapted, score };
+    return { id: s.id, heading: s.heading, part: s.part, sourceWords, fullWords, adapted, score, piece: s.piece ?? 0 };
   });
   const fullWords = base.reduce((n, s) => n + s.fullWords, 0);
   const fullSeconds = wordsToSeconds(fullWords, wpm) + fixedSeconds;
@@ -204,22 +218,23 @@ export function planWalk(input: PlanInput): Plan {
     return { mode: 'full', targetSeconds, wpm, fixedSeconds, budgetWords, fullWords, fullSeconds, tooLong: false, sections: asFull() };
   }
 
-  const weights = base.map((s) => s.fullWords * s.score);
-  const caps = base.map((s) => s.fullWords);
-  let targets = allocate(weights, caps, budgetWords);
-  // A section whose share is tiny is either read whole (if it is short anyway)
-  // or reduced to a one-sentence mention; the rest share what is left.
-  const small = targets.map((t, i) => t < MENTION_THRESHOLD && caps[i]! <= SMALL_SECTION_WORDS);
-  const mention = targets.map((t, i) => t < MENTION_THRESHOLD && caps[i]! > SMALL_SECTION_WORDS);
-  if (small.some(Boolean) || mention.some(Boolean)) {
-    const fixed = targets.reduce((n, _, i) => n + (small[i] ? caps[i]! : mention[i] ? MENTION_WORDS : 0), 0);
-    const rest = allocate(
-      weights.map((w, i) => (small[i] || mention[i] ? 0 : w)),
-      caps.map((c, i) => (small[i] || mention[i] ? 0 : c)),
-      Math.max(0, budgetWords - fixed),
-    );
-    targets = rest.map((t, i) => (small[i] ? caps[i]! : mention[i] ? MENTION_WORDS : t));
-  }
+  // Each piece gets time in proportion to its full length, then shares it out
+  // among its own sections by length and importance.
+  const pieceCount = Math.max(...base.map((s) => s.piece)) + 1;
+  const pieces: PieceBudget[] = Array.from({ length: pieceCount }, (_, p) => {
+    const full = base.filter((s) => s.piece === p).reduce((n, s) => n + s.fullWords, 0);
+    return { fullWords: full, budgetWords: fullWords > 0 ? Math.floor((budgetWords * full) / fullWords) : 0 };
+  });
+  const targets = new Array<number>(base.length).fill(0);
+  const mention = new Array<boolean>(base.length).fill(false);
+  pieces.forEach((pb, p) => {
+    const idx = base.map((s, i) => (s.piece === p ? i : -1)).filter((i) => i >= 0);
+    const share = allocatePiece(idx.map((i) => base[i]!), pb.budgetWords);
+    idx.forEach((i, k) => {
+      targets[i] = share.targets[k]!;
+      mention[i] = share.mention[k]!;
+    });
+  });
 
   const planned: PlanSection[] = base.map((s, i) => {
     const targetWords = Math.round(targets[i]!);
@@ -238,6 +253,30 @@ export function planWalk(input: PlanInput): Plan {
     fullWords,
     fullSeconds,
     tooLong: fullWords > 4 * budgetWords,
+    pieces,
     sections: planned,
   };
+}
+
+/**
+ * One piece's budget across its sections: by length times importance, capped
+ * at full length. A section whose share is tiny is either read whole (if it is
+ * short anyway) or reduced to a one-sentence mention; the rest share what is left.
+ */
+function allocatePiece(sections: { fullWords: number; score: number }[], budgetWords: number): { targets: number[]; mention: boolean[] } {
+  const weights = sections.map((s) => s.fullWords * s.score);
+  const caps = sections.map((s) => s.fullWords);
+  let targets = allocate(weights, caps, budgetWords);
+  const small = targets.map((t, i) => t < MENTION_THRESHOLD && caps[i]! <= SMALL_SECTION_WORDS);
+  const mention = targets.map((t, i) => t < MENTION_THRESHOLD && caps[i]! > SMALL_SECTION_WORDS);
+  if (small.some(Boolean) || mention.some(Boolean)) {
+    const fixed = targets.reduce((n, _, i) => n + (small[i] ? caps[i]! : mention[i] ? MENTION_WORDS : 0), 0);
+    const rest = allocate(
+      weights.map((w, i) => (small[i] || mention[i] ? 0 : w)),
+      caps.map((c, i) => (small[i] || mention[i] ? 0 : c)),
+      Math.max(0, budgetWords - fixed),
+    );
+    targets = rest.map((t, i) => (small[i] ? caps[i]! : mention[i] ? MENTION_WORDS : t));
+  }
+  return { targets, mention };
 }

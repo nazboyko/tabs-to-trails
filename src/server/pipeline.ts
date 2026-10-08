@@ -6,10 +6,11 @@ import { calibration, effectiveWpm, spokenChars } from './audio/calibrate.js';
 import { encodeMp3, makeChime } from './audio/assemble.js';
 import { decideFit, needsScores, type FitDecision, type FitSection } from './audio/fit.js';
 import { DTYPE, VOICES, voiceText } from './audio/kokoro.js';
-import { clock, placeHalfway, type Segment } from './audio/timeline.js';
+import { clock, placeCues, type CueItem, type Segment } from './audio/timeline.js';
 import { concatAudio, decodeWav, encodeWav, SAMPLE_RATE, seconds, silence } from './audio/wav.js';
 import { readSource, type SourceInput } from './source/index.js';
-import { countWords, dropBackMatter, sectionLabel, splitSections, type Section } from './source/sections.js';
+import { bridgeText, readPieces, threeQuarterText, walkTitle, wantsThreeQuarter, type Skipped } from './source/pieces.js';
+import { countWords, sectionLabel, type Section } from './source/sections.js';
 import type { SourceDoc } from './source/types.js';
 import { carriedTarget, groupSections, planWalk, SECTION_GAP, walkMode, wordsToSeconds, type Plan } from './script/budget.js';
 import { scoreSections } from './script/importance.js';
@@ -18,10 +19,19 @@ import { readAsWritten, rewriteSection, type ScriptSection } from './script/rewr
 import { readJson, slugify, writeFileAtomic, writeJson } from './walks/store.js';
 
 export interface BuildRequest {
-  source: SourceInput;
+  /** One source (every walk before playlists, and still the usual case). */
+  source?: SourceInput;
+  /** Up to 8 sources, read one after another into one walk. */
+  sources?: SourceInput[];
   /** null means "Whole thing". */
   minutes: number | null;
   voice: VoiceKey;
+}
+
+export function requestSources(req: BuildRequest): SourceInput[] {
+  if (req.sources?.length) return req.sources;
+  if (req.source) return [req.source];
+  throw new Error('The request has no source.');
 }
 
 export type StageName = 'read' | 'plan' | 'rewrite' | 'voice' | 'pack';
@@ -36,8 +46,17 @@ export interface Progress {
 
 export type OnProgress = (p: Progress) => void;
 
-export interface SourceInfo {
+export interface PieceInfo {
+  title: string;
   kind: SourceDoc['kind'];
+  url?: string;
+  byline?: string;
+  words: number;
+  sections: number;
+}
+
+export interface SourceInfo {
+  kind: SourceDoc['kind'] | 'playlist';
   title: string;
   url?: string;
   byline?: string;
@@ -45,6 +64,15 @@ export interface SourceInfo {
   sections: number;
   /** Headings of reference and link lists that were left out. */
   leftOut: string[];
+  /** Every piece read, in order (one for a single-source walk). */
+  pieces?: PieceInfo[];
+  /** Sources of a playlist that could not be used. */
+  skipped?: Skipped[];
+}
+
+/** The title of the piece a section belongs to, for prompts and bridges. */
+function pieceTitle(info: SourceInfo, piece: number | undefined): string {
+  return info.pieces?.[piece ?? 0]?.title ?? info.title;
 }
 
 export interface Script {
@@ -62,7 +90,8 @@ interface VoicedFile {
 
 interface VoiceState {
   sections: Record<string, VoicedFile>;
-  app: Partial<Record<'halfway' | 'question' | 'outro' | 'intro', VoicedFile>>;
+  /** The app's own lines: intro, halfway, threequarter, question, outro and bridge-N. */
+  app: Partial<Record<string, VoicedFile>>;
   seconds: number;
 }
 
@@ -100,18 +129,35 @@ export interface Meta {
   leftOut: string[];
   scored: boolean;
   question: boolean;
+  // The three fields below are missing from walks made before playlists.
+  /** The second cue on walks of 45 minutes or more. */
+  threeQuarterSeconds?: number | null;
+  /** The pieces of the walk in order, with where each starts and how long it runs. */
+  pieces?: MetaPiece[];
+  /** Sources of a playlist that could not be used. */
+  skipped?: Skipped[];
+}
+
+export interface MetaPiece {
+  title: string;
+  kind: string;
+  url?: string;
+  start: number;
+  seconds: number;
 }
 
 export const HALFWAY_TEXT = "You're halfway. If you're walking out and back, turn around now.";
 export const OUTRO_TEXT = "That's the end. You should be almost home.";
 export const QUESTION_LEAD = 'Here is something to think about on the way back.';
 
-export function introText(minutes: number, title: string, halfway = true): string {
-  return `This is your ${minutes}-minute Walk Edition of ${title}. Start walking.${halfway ? " I'll tell you when you're halfway." : ''}`;
+export function introText(minutes: number, title: string, halfway = true, pieces: string[] = []): string {
+  const cue = halfway ? " I'll tell you when you're halfway." : '';
+  if (pieces.length > 1) return `This is your ${minutes}-minute Walk Edition, with ${pieces.length} pieces. First: ${pieces[0]}. Start walking.${cue}`;
+  return `This is your ${minutes}-minute Walk Edition of ${title}. Start walking.${cue}`;
 }
 
 /** Pauses around the app's own lines, in seconds. */
-const PAUSE = { afterIntro: 0.9, beforeChime: 0.7, afterChime: 0.35, afterCue: 0.9, beforeOutro: 1.4, tail: 0.6 };
+const PAUSE = { afterIntro: 0.9, beforeChime: 0.7, afterChime: 0.35, afterCue: 0.9, beforeOutro: 1.4, tail: 0.6, beforeBridge: 1.4, afterBridge: 0.8 };
 
 const nowIso = () => new Date().toISOString();
 
@@ -119,33 +165,53 @@ async function stageRead(dir: string, req: BuildRequest, signal?: AbortSignal) {
   let info = await readJson<SourceInfo>(dir, 'source.json');
   let sections = await readJson<Section[]>(dir, 'sections.json');
   if (info && sections) return { info, sections };
-  const doc = await readSource(req.source, signal);
-  const { kept, dropped } = dropBackMatter(splitSections(doc.markdown));
-  sections = kept.map((s, i) => ({ ...s, id: `s${String(i + 1).padStart(2, '0')}` }));
-  // A text with no headings at all is not an "Opening": one section carries the title, parts are numbered.
-  if (sections.every((s) => s.heading === 'Opening')) {
-    sections = sections.length === 1 ? [{ ...sections[0]!, heading: doc.title }] : sections.map((s) => ({ ...s, heading: '' }));
-  }
-  const words = sections.reduce((n, s) => n + s.words, 0);
+  const { pieces, skipped } = await readPieces(requestSources(req), readSource, signal);
+  let n = 0;
+  sections = pieces.flatMap((p, piece) =>
+    p.sections.map((s) => ({ ...s, id: `s${String(++n).padStart(2, '0')}`, ...(pieces.length > 1 ? { piece } : {}) })),
+  );
+  const words = sections.reduce((total, s) => total + s.words, 0);
+  const first = pieces[0]!.doc;
+  const single = pieces.length === 1;
   info = {
-    kind: doc.kind,
-    title: doc.title,
-    url: doc.url,
-    byline: doc.byline,
+    kind: single ? first.kind : 'playlist',
+    title: single ? first.title : walkTitle(pieces.map((p) => p.doc.title)),
+    url: single ? first.url : undefined,
+    byline: single ? first.byline : undefined,
     words,
     sections: sections.length,
-    leftOut: [...(doc.leftOut ?? []), ...dropped],
+    leftOut: pieces.flatMap((p) => p.leftOut),
+    pieces: pieces.map((p, piece) => ({
+      title: p.doc.title,
+      kind: p.doc.kind,
+      url: p.doc.url,
+      byline: p.doc.byline,
+      words: sections!.filter((s) => (s.piece ?? 0) === piece).reduce((total, s) => total + s.words, 0),
+      sections: p.sections.length,
+    })),
+    skipped,
   };
-  await writeFileAtomic(path.join(dir, 'source.md'), doc.markdown);
+  const markdown = single ? first.markdown : pieces.map((p) => `# ${p.doc.title}\n\n${p.doc.markdown}`).join('\n\n---\n\n');
+  await writeFileAtomic(path.join(dir, 'source.md'), markdown);
   await writeJson(dir, 'sections.json', sections);
   await writeJson(dir, 'source.json', info);
   return { info, sections };
 }
 
-function fixedSecondsEstimate(title: string, wpm: number): number {
-  const words = countWords(introText(20, title) + HALFWAY_TEXT + QUESTION_LEAD + OUTRO_TEXT) + 18;
-  const pauses = Object.values(PAUSE).reduce((a, b) => a + b, 0) + PAUSE.beforeChime + PAUSE.afterChime;
-  return wordsToSeconds(words, wpm) + pauses + 2 * 1.2;
+function fixedSecondsEstimate(info: SourceInfo, wpm: number, targetSeconds: number | null): number {
+  const pieces = info.pieces?.map((p) => p.title) ?? [];
+  const words = countWords(introText(20, info.title, true, pieces) + HALFWAY_TEXT + QUESTION_LEAD + OUTRO_TEXT) + 18;
+  const pauses =
+    PAUSE.afterIntro + PAUSE.afterCue + PAUSE.beforeOutro + PAUSE.tail + 2 * (PAUSE.beforeChime + PAUSE.afterChime);
+  let seconds = wordsToSeconds(words, wpm) + pauses + 2 * 1.2;
+  // Bridges between pieces replace a section gap with their own pauses and words.
+  for (const title of pieces.slice(1)) {
+    seconds += wordsToSeconds(countWords(bridgeText(title)), wpm) + PAUSE.beforeBridge + PAUSE.afterBridge - SECTION_GAP;
+  }
+  if (targetSeconds !== null && wantsThreeQuarter(targetSeconds)) {
+    seconds += wordsToSeconds(countWords(threeQuarterText(15)), wpm) + PAUSE.beforeChime + PAUSE.afterChime + PAUSE.afterCue + 1.2;
+  }
+  return seconds;
 }
 
 export function planDetail(plan: Plan): string {
@@ -182,19 +248,29 @@ async function stagePlan(dir: string, req: BuildRequest, info: SourceInfo, secti
   if (saved && savedSections) return { plan: saved, planSections: savedSections };
   const cal = await calibration(req.voice);
   const wpm = effectiveWpm(cal, charsPerWord(sections));
-  const input = {
-    sections,
-    targetSeconds: req.minutes === null ? null : req.minutes * 60,
-    wpm,
-    fixedSeconds: fixedSecondsEstimate(info.title, wpm),
-  };
+  const targetSeconds = req.minutes === null ? null : req.minutes * 60;
+  const input = { sections, targetSeconds, wpm, fixedSeconds: fixedSecondsEstimate(info, wpm, targetSeconds) };
   let plan = planWalk(input);
   let planSections = sections;
   if (plan.mode === 'condensed') {
-    planSections = groupSections(sections, plan.budgetWords ?? 0);
-    if (planSections !== sections) plan = planWalk({ ...input, sections: planSections });
-    const { scores } = await scoreSections(info.title, planSections);
-    if (scores) plan = { ...planWalk({ ...input, sections: planSections, scores }), scored: true };
+    // Grouping and importance stay inside each piece of a playlist.
+    const pieceCount = info.pieces?.length ?? 1;
+    const ofPiece = (list: Section[], p: number) => list.filter((s) => (s.piece ?? 0) === p);
+    const grouped = Array.from({ length: pieceCount }, (_, p) =>
+      groupSections(ofPiece(sections, p), plan.pieces?.[p]?.budgetWords ?? plan.budgetWords ?? 0),
+    );
+    if (grouped.some((g, p) => g !== ofPiece(sections, p) && g.length !== ofPiece(sections, p).length)) {
+      planSections = grouped.flat();
+      plan = planWalk({ ...input, sections: planSections });
+    }
+    const scores: Record<string, number> = {};
+    let scored = true;
+    for (let p = 0; p < pieceCount; p++) {
+      const result = await scoreSections(pieceTitle(info, p), ofPiece(planSections, p));
+      if (result.scores) Object.assign(scores, result.scores);
+      else if (ofPiece(planSections, p).length > 1) scored = false;
+    }
+    if (scored && Object.keys(scores).length) plan = { ...planWalk({ ...input, sections: planSections, scores }), scored: true };
   }
   await writeJson(dir, 'plan-sections.json', planSections);
   await writeJson(dir, 'plan.json', plan);
@@ -232,12 +308,16 @@ async function stageRewrite(
     onProgress({ stage: 'rewrite', state: 'active', done: i, total, detail: `Section ${i + 1} of ${total} · ${sectionLabel(section)}` });
     if (state.sections[section.id]) continue;
     const planned = plan.sections[i]!;
-    const wordsSoFar = sections.slice(0, i).reduce((n, s) => n + (state.sections[s.id]?.words ?? 0), 0);
+    // What the sections of this piece written so far came out at; other pieces keep their own time.
+    const wordsSoFar = sections
+      .slice(0, i)
+      .filter((s) => (s.piece ?? 0) === (section.piece ?? 0))
+      .reduce((n, s) => n + (state.sections[s.id]?.words ?? 0), 0);
     const targetWords = carriedTarget(plan, i, wordsSoFar);
-    state.sections[section.id] = await rewriteSection(section, { ...planned, targetWords }, { title: info.title, signal });
+    state.sections[section.id] = await rewriteSection(section, { ...planned, targetWords }, { title: pieceTitle(info, section.piece), signal });
     await writeJson(dir, 'rewrite.json', state);
   }
-  const done = sections.map((s) => state.sections[s.id]!);
+  const done = sections.map((s) => ({ ...state.sections[s.id]!, ...(s.piece !== undefined ? { piece: s.piece } : {}) }));
   if (!state.question) {
     onProgress({ stage: 'rewrite', state: 'active', done: total, total, detail: 'A question for the last stretch' });
     const q = await closingQuestion(info.title, questionSource(sections, done));
@@ -258,6 +338,7 @@ async function voiceTo(dir: string, file: string, text: string, voice: VoiceKey,
 async function stageVoice(
   dir: string,
   req: BuildRequest,
+  info: SourceInfo,
   script: Script,
   onProgress: OnProgress,
   signal?: AbortSignal,
@@ -274,11 +355,14 @@ async function stageVoice(
     state.seconds += (Date.now() - started) / 1000;
     await writeJson(dir, 'voice.json', state);
   }
-  const app: [keyof VoiceState['app'], string][] = [
+  const app: [string, string][] = [
     ['halfway', HALFWAY_TEXT],
     ['outro', OUTRO_TEXT],
   ];
   if (script.question) app.push(['question', `${QUESTION_LEAD} ${script.question}`]);
+  (info.pieces ?? []).forEach((p, piece) => {
+    if (piece > 0) app.push([`bridge-${piece}`, bridgeText(p.title)]);
+  });
   for (const [key, text] of app) {
     if (state.app[key]?.text === text) continue;
     const started = Date.now();
@@ -291,17 +375,34 @@ async function stageVoice(
 
 const toSamples = (s: number) => Math.round(s * SAMPLE_RATE);
 
+/** Pause, chime, pause, the spoken cue and a pause after it. */
+function cueBlockLength(chime: number, spoken: number): number {
+  return toSamples(PAUSE.beforeChime) + chime + toSamples(PAUSE.afterChime) + spoken + toSamples(PAUSE.afterCue);
+}
+
 /** Lengths in samples of everything around the content, from what is already voiced. */
-function layout(voice: VoiceState, script: Script, chime: number, title: string, wpm: number) {
-  const content =
-    script.sections.reduce((n, s) => n + (voice.sections[s.id]?.samples ?? 0), 0) + toSamples(SECTION_GAP) * (script.sections.length - 1);
-  const cue = toSamples(PAUSE.beforeChime) + chime + toSamples(PAUSE.afterChime) + (voice.app.halfway?.samples ?? 0) + toSamples(PAUSE.afterCue);
+function layout(voice: VoiceState, script: Script, chime: number, info: SourceInfo, wpm: number) {
+  let content = 0;
+  script.sections.forEach((s, i) => {
+    content += voice.sections[s.id]?.samples ?? 0;
+    if (i === 0) return;
+    const piece = s.piece ?? 0;
+    const bridge = piece !== (script.sections[i - 1]!.piece ?? 0) ? voice.app[`bridge-${piece}`] : undefined;
+    content += bridge ? toSamples(PAUSE.beforeBridge) + bridge.samples + toSamples(PAUSE.afterBridge) : toSamples(SECTION_GAP);
+  });
+  const cue = cueBlockLength(chime, voice.app.halfway?.samples ?? 0);
   const after =
     toSamples(PAUSE.beforeChime) + chime + toSamples(PAUSE.afterChime) +
     (voice.app.question ? voice.app.question.samples + toSamples(PAUSE.beforeOutro) : 0) +
     (voice.app.outro?.samples ?? 0) + toSamples(PAUSE.tail);
-  const intro = toSamples(wordsToSeconds(countWords(introText(20, title)), wpm) + PAUSE.afterIntro);
-  return { content, cue, after, intro, total: content + cue + after + intro };
+  const pieces = info.pieces?.map((p) => p.title) ?? [];
+  const intro = toSamples(wordsToSeconds(countWords(introText(20, info.title, true, pieces)), wpm) + PAUSE.afterIntro);
+  const base = content + cue + after + intro;
+  // Long walks get a second cue; its length is estimated until it is voiced.
+  const threeQuarter = wantsThreeQuarter(base / SAMPLE_RATE)
+    ? cueBlockLength(chime, voice.app.threequarter?.samples ?? toSamples(wordsToSeconds(countWords(threeQuarterText(15)), wpm)))
+    : 0;
+  return { content, cue, after, intro, threeQuarter, total: base + threeQuarter };
 }
 
 interface FitState {
@@ -341,7 +442,7 @@ async function stageFit(
   }
   if (!fit) {
     const chime = await makeChime();
-    const beforeSeconds = layout(voice, script, chime.length, info.title, plan.wpm).total / SAMPLE_RATE;
+    const beforeSeconds = layout(voice, script, chime.length, info, plan.wpm).total / SAMPLE_RATE;
     const fitSections: FitSection[] = script.sections.map((s, i) => ({
       id: s.id,
       treatment: s.treatment,
@@ -354,7 +455,11 @@ async function stageFit(
     let scores: Record<string, number> | null | undefined;
     if (!plan.scored && needsScores(plan.targetSeconds, beforeSeconds, fitSections)) {
       onProgress({ stage: 'voice', state: 'active', done: script.sections.length, total: script.sections.length, detail: 'Choosing a part to shorten' });
-      scores = (await scoreSections(info.title, sections)).scores;
+      scores = {};
+      for (let p = 0; p < (info.pieces?.length ?? 1); p++) {
+        const result = await scoreSections(pieceTitle(info, p), sections.filter((sec) => (sec.piece ?? 0) === p));
+        Object.assign(scores, result.scores ?? {});
+      }
       for (const f of fitSections) f.score = scores?.[f.id];
     }
     const decision = decideFit(plan.targetSeconds, beforeSeconds, fitSections);
@@ -367,8 +472,12 @@ async function stageFit(
   const old = script.sections[i]!;
   const verb = decision.toWords < decision.fromWords ? 'Shortening' : 'Lengthening';
   onProgress({ stage: 'voice', state: 'active', done: script.sections.length, total: script.sections.length, detail: `${verb} ${sectionLabel(old)} to fit the walk` });
-  const redone = await rewriteSection(sections[i]!, { ...plan.sections[i]!, treatment: 'condensed', targetWords: decision.toWords }, { title: info.title, signal });
-  fit = { ...fit, done: true, section: { ...redone, modelSeconds: old.modelSeconds + redone.modelSeconds, modelCalls: old.modelCalls + redone.modelCalls } };
+  const redone = await rewriteSection(sections[i]!, { ...plan.sections[i]!, treatment: 'condensed', targetWords: decision.toWords }, { title: pieceTitle(info, sections[i]!.piece), signal });
+  fit = {
+    ...fit,
+    done: true,
+    section: { ...redone, piece: old.piece, modelSeconds: old.modelSeconds + redone.modelSeconds, modelCalls: old.modelCalls + redone.modelCalls },
+  };
   await writeJson(dir, 'fit.json', fit);
   const next = applyFit(script, fit);
   await writeJson(dir, 'script.json', next);
@@ -377,6 +486,11 @@ async function stageFit(
 
 async function loadSamples(dir: string, v: VoicedFile): Promise<Float32Array> {
   return decodeWav(await fs.readFile(path.join(dir, v.file))).samples;
+}
+
+interface Item extends Omit<CueItem, 'length'> {
+  audio: Float32Array;
+  seg?: Omit<Segment, 'start' | 'end'>;
 }
 
 async function stagePack(
@@ -397,33 +511,80 @@ async function stagePack(
   const halfwayAudio = await loadSamples(dir, voice.app.halfway!);
   const outroAudio = await loadSamples(dir, voice.app.outro!);
   const questionAudio = voice.app.question ? await loadSamples(dir, voice.app.question) : null;
+  const pieceTitles = info.pieces?.map((p) => p.title) ?? [];
+  const playlist = pieceTitles.length > 1;
+  const voiceApp = async (key: string, text: string) => {
+    if (voice.app[key]?.text === text) return;
+    const started = Date.now();
+    voice.app[key] = await voiceTo(dir, `app-${key}.wav`, text, req.voice, signal);
+    voice.seconds += (Date.now() - started) / 1000;
+    await writeJson(dir, 'voice.json', voice);
+  };
 
-  const lengths = layout(voice, script, chime.length, info.title, plan.wpm);
-  const cueLength = lengths.cue;
-  const afterLength = lengths.after;
   // The intro names the length, so it is voiced once the rest is measured.
+  let lengths = layout(voice, script, chime.length, info, plan.wpm);
   const minutes = Math.max(1, Math.round(lengths.total / SAMPLE_RATE / 60));
   const first = voice.sections[script.sections[0]!.id]!;
   const hasHalfway = script.sections.length > 1 || first.boundaries.length > 0;
-  const intro = introText(minutes, info.title, hasHalfway);
-  if (voice.app.intro?.text !== intro) {
-    const started = Date.now();
-    voice.app.intro = await voiceTo(dir, 'app-intro.wav', intro, req.voice, signal);
-    voice.seconds += (Date.now() - started) / 1000;
-    await writeJson(dir, 'voice.json', voice);
-  }
+  const intro = introText(minutes, info.title, hasHalfway, pieceTitles);
+  await voiceApp('intro', intro);
+  // About a quarter of the walk is left at the second cue; the number is checked once the cue is placed.
+  const longWalk = lengths.threeQuarter > 0;
+  let threeQuarter = longWalk ? threeQuarterText((lengths.total / SAMPLE_RATE) * 0.25 / 60) : null;
+  if (threeQuarter) await voiceApp('threequarter', threeQuarter);
   onProgress({ stage: 'voice', state: 'done', done: script.sections.length, total: script.sections.length });
   onProgress({ stage: 'pack', state: 'active' });
-  const introAudio = await loadSamples(dir, voice.app.intro);
-  const pieces = await Promise.all(script.sections.map((s) => loadSamples(dir, voice.sections[s.id]!)));
+  const introAudio = await loadSamples(dir, voice.app.intro!);
+  const sectionAudio = await Promise.all(script.sections.map((s) => loadSamples(dir, voice.sections[s.id]!)));
 
-  const spot = placeHalfway({
-    before: introAudio.length + toSamples(PAUSE.afterIntro),
-    pieces: pieces.map((p, i) => ({ length: p.length, boundaries: voice.sections[script.sections[i]!.id]!.boundaries })),
-    gap: toSamples(SECTION_GAP),
-    cue: cueLength,
-    after: afterLength,
-  });
+  // The walk between intro and closing lines, as items a cue may sit before or inside.
+  const items: Item[] = [];
+  for (let i = 0; i < script.sections.length; i++) {
+    const s = script.sections[i]!;
+    const piece = s.piece ?? 0;
+    const newPiece = i > 0 && piece !== (script.sections[i - 1]!.piece ?? 0);
+    if (newPiece && voice.app[`bridge-${piece}`]) {
+      const bridge = await loadSamples(dir, voice.app[`bridge-${piece}`]!);
+      items.push({ audio: silence(PAUSE.beforeBridge), boundaries: [], cueBefore: false });
+      // A cue between two pieces goes before the bridge, never between "Next: ..." and the piece.
+      items.push({ audio: bridge, boundaries: [], cueBefore: true, seg: { kind: 'app', role: 'bridge', label: bridgeText(pieceTitles[piece] ?? ''), piece } });
+      items.push({ audio: silence(PAUSE.afterBridge), boundaries: [], cueBefore: false });
+    } else if (i > 0) {
+      items.push({ audio: silence(SECTION_GAP), boundaries: [], cueBefore: false });
+    }
+    items.push({
+      audio: sectionAudio[i]!,
+      boundaries: voice.sections[s.id]!.boundaries,
+      cueBefore: i > 0 && !newPiece,
+      seg: { kind: 'source', label: sectionLabel(s), sectionId: s.id, ...(playlist ? { piece } : {}) },
+    });
+  }
+
+  const before = introAudio.length + toSamples(PAUSE.afterIntro);
+  const place = () =>
+    placeCues({
+      before,
+      items: items.map((it) => ({ length: it.audio.length, boundaries: it.boundaries, cueBefore: it.cueBefore })),
+      after: lengths.after,
+      cues: [
+        { fraction: 0.5, length: lengths.cue },
+        ...(threeQuarter ? [{ fraction: 0.75, length: cueBlockLength(chime.length, voice.app.threequarter!.samples) }] : []),
+      ],
+    });
+  let spots = place();
+  const second = () => spots.find((spot) => spot.cue === 1);
+  // Now that the walk is laid out, say how much is really left at the second cue.
+  if (threeQuarter && second()) {
+    const left = (second()!.total - second()!.cueStart) / SAMPLE_RATE / 60;
+    const checked = threeQuarterText(left);
+    if (checked !== threeQuarter) {
+      threeQuarter = checked;
+      await voiceApp('threequarter', threeQuarter);
+      lengths = layout(voice, script, chime.length, info, plan.wpm);
+      spots = place();
+    }
+  }
+  const threeQuarterAudio = threeQuarter && second() ? await loadSamples(dir, voice.app.threequarter!) : null;
 
   const parts: Float32Array[] = [];
   const segments: Segment[] = [];
@@ -433,28 +594,29 @@ async function stagePack(
     parts.push(audio);
     at += audio.length;
   };
-  const cueAt: { seconds: number | null } = { seconds: null };
-  const pushCue = () => {
+  const cueAt: { half: number | null; threeQuarter: number | null } = { half: null, threeQuarter: null };
+  const pushCue = (cue: number) => {
     push(silence(PAUSE.beforeChime));
-    cueAt.seconds = at / SAMPLE_RATE;
-    push(concatAudio([chime, silence(PAUSE.afterChime), halfwayAudio]), { kind: 'app', role: 'halfway', label: 'Halfway cue' });
+    if (cue === 0) {
+      cueAt.half = at / SAMPLE_RATE;
+      push(concatAudio([chime, silence(PAUSE.afterChime), halfwayAudio]), { kind: 'app', role: 'halfway', label: 'Halfway cue' });
+    } else {
+      cueAt.threeQuarter = at / SAMPLE_RATE;
+      push(concatAudio([chime, silence(PAUSE.afterChime), threeQuarterAudio!]), { kind: 'app', role: 'threequarter', label: 'Three-quarter cue' });
+    }
     push(silence(PAUSE.afterCue));
   };
 
   push(introAudio, { kind: 'app', role: 'intro', label: 'Intro' });
   push(silence(PAUSE.afterIntro));
-  script.sections.forEach((s, i) => {
-    if (i > 0) push(silence(SECTION_GAP));
-    const audio = pieces[i]!;
-    const label = sectionLabel(s);
-    if (spot && spot.piece === i && spot.offset > 0) {
-      push(audio.subarray(0, spot.offset), { kind: 'source', label, sectionId: s.id });
-      pushCue();
-      push(audio.subarray(spot.offset), { kind: 'source', label, sectionId: s.id });
-    } else {
-      if (spot && spot.piece === i && i > 0) pushCue();
-      push(audio, { kind: 'source', label, sectionId: s.id });
+  items.forEach((it, i) => {
+    let from = 0;
+    for (const spot of spots.filter((sp) => sp.item === i)) {
+      if (spot.offset > from) push(it.audio.subarray(from, spot.offset), it.seg);
+      pushCue(spot.cue);
+      from = spot.offset;
     }
+    if (from < it.audio.length) push(from ? it.audio.subarray(from) : it.audio, it.seg);
   });
   push(silence(PAUSE.beforeChime));
   if (questionAudio) {
@@ -467,7 +629,8 @@ async function stagePack(
   push(outroAudio, { kind: 'app', role: 'outro', label: 'Sign-off' });
   push(silence(PAUSE.tail));
 
-  const halfwaySeconds = cueAt.seconds;
+  const halfwaySeconds = cueAt.half;
+  const threeQuarterSeconds = cueAt.threeQuarter;
   const finalAudio = concatAudio(parts);
   const actualSeconds = seconds(finalAudio);
   const wavPath = path.join(dir, 'final.wav');
@@ -476,20 +639,34 @@ async function stagePack(
   await encodeMp3(wavPath, path.join(dir, 'final.mp3'), { title: info.title, date, comment: 'Made on this computer with Gemma and Kokoro' });
   await fs.rm(wavPath, { force: true });
   const bytes = (await fs.stat(path.join(dir, 'final.mp3'))).size;
-  await writeJson(dir, 'timeline.json', { seconds: actualSeconds, halfwaySeconds, segments });
+  await writeJson(dir, 'timeline.json', { seconds: actualSeconds, halfwaySeconds, threeQuarterSeconds, segments });
+
+  // Where each piece starts (its bridge, or its first section) and how long it runs.
+  const pieces = (info.pieces ?? [{ title: info.title, kind: info.kind as SourceDoc['kind'], url: info.url, words: info.words, sections: info.sections }]).map(
+    (p, piece) => {
+      const own = segments.filter((g) => (playlist ? g.piece === piece : g.kind === 'source'));
+      const start = own.length ? Math.min(...own.map((g) => g.start)) : 0;
+      const end = own.length ? Math.max(...own.map((g) => g.end)) : 0;
+      return { title: p.title, kind: p.kind, url: p.url, start: Math.round(start * 10) / 10, seconds: Math.round((end - start) * 10) / 10 };
+    },
+  );
 
   const scriptText = [
     `${info.title}`,
-    `Walk Edition, ${clock(actualSeconds)}${halfwaySeconds !== null ? `, halfway cue at ${clock(halfwaySeconds)}` : ''}`,
+    `Walk Edition, ${clock(actualSeconds)}${halfwaySeconds !== null ? `, halfway cue at ${clock(halfwaySeconds)}` : ''}${threeQuarterSeconds !== null ? `, three-quarter cue at ${clock(threeQuarterSeconds)}` : ''}`,
+    ...(playlist ? ['', ...pieces.map((p, i) => `${i + 1}. ${p.title} (${clock(p.seconds)}, from ${clock(p.start)})`)] : []),
     '',
     `[${clock(0)}] The app: ${intro}`,
     '',
-    ...script.sections.flatMap((s) => {
+    ...script.sections.flatMap((s, i) => {
       const seg = segments.find((g) => g.sectionId === s.id);
+      const piece = s.piece ?? 0;
+      const bridge = playlist && i > 0 && piece !== (script.sections[i - 1]!.piece ?? 0) ? segments.find((g) => g.role === 'bridge' && g.piece === piece) : undefined;
       const head = `[${clock(seg?.start ?? 0)}] ${sectionLabel(s)} (${s.coverage})${s.checkNumbers.length ? ` check numbers: ${s.checkNumbers.join(', ')}` : ''}`;
-      return [head, s.text, ''];
+      return [...(bridge ? [`[${clock(bridge.start)}] The app: ${bridge.label}`, ''] : []), head, s.text, ''];
     }),
     ...(halfwaySeconds !== null ? [`[${clock(halfwaySeconds)}] The app, after a chime: ${HALFWAY_TEXT}`, ''] : []),
+    ...(threeQuarterSeconds !== null && threeQuarter ? [`[${clock(threeQuarterSeconds)}] The app, after a chime: ${threeQuarter}`, ''] : []),
     ...(script.question ? [`The app, a question for the last stretch: ${QUESTION_LEAD} ${script.question}`, ''] : []),
     `The app: ${OUTRO_TEXT}`,
     '',
@@ -498,14 +675,15 @@ async function stagePack(
 
   const cfg = loadConfig();
   // The file name says how long the walk is: the target when it was condensed to fit, else the measured length.
-  const fileMinutes = plan.mode === 'condensed' && req.minutes ? req.minutes : Math.max(1, Math.round(actualSeconds / 60));
+  const mode = walkMode(script.sections);
+  const fileMinutes = mode === 'condensed' && req.minutes ? req.minutes : Math.max(1, Math.round(actualSeconds / 60));
   const meta: Meta = {
     id,
     title: info.title,
     createdAt,
     finishedAt: nowIso(),
     source: { kind: info.kind, url: info.url, byline: info.byline },
-    mode: walkMode(script.sections),
+    mode,
     targetSeconds: plan.targetSeconds,
     actualSeconds: Math.round(actualSeconds * 100) / 100,
     halfwaySeconds: halfwaySeconds === null ? null : Math.round(halfwaySeconds * 100) / 100,
@@ -536,6 +714,9 @@ async function stagePack(
     leftOut: info.leftOut ?? [],
     scored: plan.scored ?? false,
     question: script.question !== null,
+    threeQuarterSeconds: threeQuarterSeconds === null ? null : Math.round(threeQuarterSeconds * 100) / 100,
+    pieces,
+    skipped: info.skipped ?? [],
   };
   await writeJson(dir, 'meta.json', meta);
 
@@ -563,8 +744,8 @@ export async function runPipeline(
   const script = await stageRewrite(dir, info, planSections, plan, onProgress, signal);
   onProgress({ stage: 'rewrite', state: 'done', done: planSections.length, total: planSections.length });
 
-  let voice = await stageVoice(dir, req, script, onProgress, signal);
+  let voice = await stageVoice(dir, req, info, script, onProgress, signal);
   const fitted = await stageFit(dir, info, planSections, plan, script, voice, onProgress, signal);
-  if (fitted.script !== script) voice = await stageVoice(dir, req, fitted.script, onProgress, signal);
+  if (fitted.script !== script) voice = await stageVoice(dir, req, info, fitted.script, onProgress, signal);
   return stagePack(id, dir, req, info, plan, fitted.script, voice, createdAt, fitted.fit, onProgress, signal);
 }

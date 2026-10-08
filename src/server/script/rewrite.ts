@@ -19,6 +19,8 @@ export interface ScriptSection {
   id: string;
   heading: string;
   part?: number;
+  /** Piece of a multi-source walk. */
+  piece?: number;
   treatment: Treatment;
   coverage: Coverage;
   adapted: AdaptedKind[];

@@ -24,6 +24,8 @@ export interface Section {
   /** Words a listener would hear if the section were read as written. */
   words: number;
   blocks: Block[];
+  /** Which piece of a multi-source walk the section belongs to (0 for a single source). */
+  piece?: number;
 }
 
 /** Sections longer than this are split by paragraph groups. */

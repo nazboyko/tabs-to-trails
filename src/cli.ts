@@ -4,14 +4,15 @@ import { loadConfig, VOICE_KEYS, type VoiceKey } from './server/config.js';
 import { clock } from './server/audio/timeline.js';
 import type { BuildRequest, Meta } from './server/pipeline.js';
 import type { SourceInput } from './server/source/index.js';
+import { MAX_PIECES } from './server/source/pieces.js';
 import { disposeVoiceModel } from './server/audio/kokoro.js';
 import { Jobs } from './server/walks/jobs.js';
 import { walkDir } from './server/walks/store.js';
 
-const USAGE = `Usage: npm run walk -- <url-or-file> [--minutes 10|20|30|whole] [--voice ${VOICE_KEYS.join('|')}]`;
+const USAGE = `Usage: npm run walk -- <url-or-file> [more, up to ${MAX_PIECES}] [--minutes 10|20|30|45|60|whole] [--voice ${VOICE_KEYS.join('|')}]`;
 
 function parseArgs(argv: string[]): BuildRequest {
-  let target: string | undefined;
+  const targets: string[] = [];
   let minutes: number | null = 20;
   let voice: VoiceKey = loadConfig().VOICE;
   for (let i = 0; i < argv.length; i++) {
@@ -25,17 +26,18 @@ function parseArgs(argv: string[]): BuildRequest {
       const v = argv[++i] as VoiceKey | undefined;
       if (!v || !VOICE_KEYS.includes(v)) throw new Error(USAGE);
       voice = v;
-    } else if (!a.startsWith('--') && !target) {
-      target = a;
+    } else if (!a.startsWith('--') && targets.length < MAX_PIECES) {
+      targets.push(a);
     } else {
       throw new Error(USAGE);
     }
   }
-  if (!target) throw new Error(USAGE);
-  const source: SourceInput = fs.existsSync(target)
-    ? { kind: 'file', name: path.basename(target), text: fs.readFileSync(target, 'utf8') }
-    : { kind: 'url', url: target };
-  return { source, minutes, voice };
+  if (!targets.length) throw new Error(USAGE);
+  const sources: SourceInput[] = targets.map((target) =>
+    fs.existsSync(target) ? { kind: 'file', name: path.basename(target), text: fs.readFileSync(target, 'utf8') } : { kind: 'url', url: target },
+  );
+  // Several sources make one playlist walk, read in the order given.
+  return sources.length === 1 ? { source: sources[0]!, minutes, voice } : { sources, minutes, voice };
 }
 
 async function main() {
@@ -61,8 +63,11 @@ async function main() {
   console.log(`${meta.title}`);
   console.log(`  ${clock(meta.actualSeconds)} measured${meta.targetSeconds ? `, asked for ${clock(meta.targetSeconds)}` : ''}; halfway cue at ${meta.halfwaySeconds === null ? 'none' : clock(meta.halfwaySeconds)}`);
   console.log(`  ${meta.sourceWords} source words -> ${meta.scriptWords} script words, ${meta.mode} mode`);
+  for (const p of meta.pieces && meta.pieces.length > 1 ? meta.pieces : []) console.log(`  ${clock(p.seconds)}  ${p.title}`);
+  for (const s of meta.skipped ?? []) console.log(`  skipped ${s.label}: ${s.reason}`);
+  if (meta.threeQuarterSeconds) console.log(`  three-quarter cue at ${clock(meta.threeQuarterSeconds)}`);
   console.log(`  rewrite ${meta.rewriteSeconds}s, voice ${meta.voiceSeconds}s, total ${Math.round((Date.now() - started) / 1000)}s`);
-  console.log(`  ${rel}/final.mp3  ${rel}/script.txt`);
+  console.log(`  ${rel}/final.mp3 (${(meta.bytes / 1e6).toFixed(1)} MB)  ${rel}/script.txt`);
   await disposeVoiceModel();
 }
 

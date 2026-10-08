@@ -6,7 +6,7 @@ import type { Context } from 'hono';
 import { Hono } from 'hono';
 import { loadConfig } from '../config.js';
 import type { Segment } from '../audio/timeline.js';
-import { HALFWAY_TEXT, OUTRO_TEXT, QUESTION_LEAD, type Meta, type Script, type SourceInfo } from '../pipeline.js';
+import { HALFWAY_TEXT, OUTRO_TEXT, QUESTION_LEAD, requestSources, type BuildRequest, type Meta, type Script, type SourceInfo } from '../pipeline.js';
 import type { Plan } from '../script/budget.js';
 import { sectionLabel } from '../source/sections.js';
 import type { Jobs } from '../walks/jobs.js';
@@ -16,7 +16,14 @@ import { exists, isWalkId, listWalkIds, readJson, walkDir } from '../walks/store
 interface Timeline {
   seconds: number;
   halfwaySeconds: number | null;
+  threeQuarterSeconds?: number | null;
   segments: Segment[];
+}
+
+/** The links the walk was asked for, one per line, so a failed build can offer them again. */
+function requestedLinks(req: BuildRequest): string | null {
+  const urls = requestSources(req).filter((s) => s.kind === 'url');
+  return urls.length ? urls.map((s) => (s.kind === 'url' ? s.url : '')).join('\n') : null;
 }
 
 export async function walkSummary(id: string) {
@@ -44,11 +51,13 @@ export async function walkDetail(id: string, jobs: Jobs, port: number) {
       status,
       ready: false as const,
       title: info?.title ?? null,
-      request: req ? { minutes: req.minutes, voice: req.voice, url: req.source.kind === 'url' ? req.source.url : null } : null,
+      request: req ? { minutes: req.minutes, voice: req.voice, url: requestedLinks(req) } : null,
     };
   }
   const at = (role: Segment['role']) => timeline.segments.find((s) => s.role === role)?.start ?? null;
-  const intro = (await readJson<{ app: { intro?: { text: string } } }>(dir, 'voice.json'))?.app.intro?.text ?? '';
+  const app = (await readJson<{ app: Record<string, { text: string } | undefined> }>(dir, 'voice.json'))?.app ?? {};
+  const intro = app.intro?.text ?? '';
+  const threeQuarter = timeline.threeQuarterSeconds ?? null;
   const url = shareUrl(id, record.token, port, loadConfig().SHARE_HOST ?? lanAddress());
   return {
     id,
@@ -63,6 +72,7 @@ export async function walkDetail(id: string, jobs: Jobs, port: number) {
       return {
         id: s.id,
         label: sectionLabel(s),
+        piece: s.piece ?? 0,
         coverage: s.coverage,
         adapted: s.adapted,
         checkNumbers: s.checkNumbers,
@@ -77,11 +87,15 @@ export async function walkDetail(id: string, jobs: Jobs, port: number) {
     app: {
       intro: { text: intro, start: at('intro') },
       halfway: timeline.halfwaySeconds === null ? null : { text: HALFWAY_TEXT, start: timeline.halfwaySeconds },
+      threeQuarter: threeQuarter === null || !app.threequarter ? null : { text: app.threequarter.text, start: threeQuarter },
+      bridges: timeline.segments.filter((g) => g.role === 'bridge').map((g) => ({ piece: g.piece ?? 0, text: g.label, start: g.start })),
       question: script.question ? { text: `${QUESTION_LEAD} ${script.question}`, start: at('question') } : null,
       outro: { text: OUTRO_TEXT, start: at('outro') },
     },
     segments: timeline.segments,
     leftOut: info?.leftOut ?? [],
+    pieces: meta.pieces ?? [],
+    skipped: meta.skipped ?? [],
     share: url ? { url, qr: await qrDataUrl(url) } : null,
   };
 }
@@ -186,9 +200,12 @@ export function phoneRoutes(jobs: Jobs, phonePage: () => Promise<string | null>)
         title: meta.title,
         actualSeconds: meta.actualSeconds,
         halfwaySeconds: meta.halfwaySeconds,
+        threeQuarterSeconds: meta.threeQuarterSeconds ?? null,
         bytes: meta.bytes,
         fileName: meta.fileName,
         chapters: timeline.segments.filter((s) => s.kind === 'source').map((s) => ({ label: s.label, start: s.start })),
+        // A playlist lists its pieces; a single source has one, which the page does not repeat.
+        pieces: (meta.pieces ?? []).length > 1 ? meta.pieces!.map((p) => ({ title: p.title, start: p.start, seconds: p.seconds })) : [],
       });
     })
     .on(['GET', 'HEAD'], '/:id/audio', async (c) => {

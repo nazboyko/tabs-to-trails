@@ -4,21 +4,50 @@ import { z } from 'zod';
 import { VOICE_KEYS } from '../config.js';
 import { fromFile, fromText, MAX_FILE_BYTES, MAX_TEXT_CHARS } from '../source/paste.js';
 import { parseHttpUrl } from '../source/readable.js';
+import { MAX_PIECES } from '../source/pieces.js';
 import { SourceError } from '../source/types.js';
 import { isWalkId } from '../walks/store.js';
 import type { Jobs, Status } from '../walks/jobs.js';
 import type { Meta } from '../pipeline.js';
 import { health } from './health.js';
 
-export const BuildBody = z.object({
-  source: z.discriminatedUnion('kind', [
-    z.object({ kind: z.literal('url'), url: z.string().trim().min(1).max(4000) }),
-    z.object({ kind: z.literal('text'), text: z.string().max(MAX_TEXT_CHARS), title: z.string().max(300).optional() }),
-    z.object({ kind: z.literal('file'), name: z.string().min(1).max(255), text: z.string().max(MAX_FILE_BYTES) }),
-  ]),
-  minutes: z.union([z.literal(10), z.literal(20), z.literal(30), z.null()]),
-  voice: z.enum(VOICE_KEYS),
-});
+const Source = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('url'), url: z.string().trim().min(1).max(4000) }),
+  z.object({ kind: z.literal('text'), text: z.string().max(MAX_TEXT_CHARS), title: z.string().max(300).optional() }),
+  z.object({ kind: z.literal('file'), name: z.string().min(1).max(255), text: z.string().max(MAX_FILE_BYTES) }),
+]);
+
+/** One source, or a playlist of up to eight read one after another. */
+export const BuildBody = z
+  .object({
+    source: Source.optional(),
+    sources: z.array(Source).min(1).max(MAX_PIECES).optional(),
+    minutes: z.union([z.literal(10), z.literal(20), z.literal(30), z.literal(45), z.literal(60), z.null()]),
+    voice: z.enum(VOICE_KEYS),
+  })
+  .refine((b) => (b.source ? 1 : 0) + (b.sources ? 1 : 0) === 1);
+
+type SourceBody = z.infer<typeof Source>;
+
+function checkSource(source: SourceBody): void {
+  if (source.kind === 'url') parseHttpUrl(source.url);
+  else if (source.kind === 'text') fromText(source.text, source.title);
+  else fromFile(source.name, source.text);
+}
+
+/** The first problem with the sources, or null. In a playlist, only a list where nothing can be used is refused. */
+function sourceProblem(sources: SourceBody[]): SourceError | null {
+  const problems: SourceError[] = [];
+  for (const source of sources) {
+    try {
+      checkSource(source);
+    } catch (err) {
+      if (!(err instanceof SourceError)) throw err;
+      problems.push(err);
+    }
+  }
+  return problems.length === sources.length ? problems[0]! : null;
+}
 
 export function buildRoutes(jobs: Jobs) {
   return new Hono()
@@ -29,18 +58,14 @@ export function buildRoutes(jobs: Jobs) {
       }
       const parsed = BuildBody.safeParse(await c.req.json().catch(() => null));
       if (!parsed.success) return c.json({ error: 'That request is missing something. Reload the page and try again.' }, 400);
-      const body = parsed.data;
-      try {
-        if (body.source.kind === 'url') parseHttpUrl(body.source.url);
-        else if (body.source.kind === 'text') fromText(body.source.text, body.source.title);
-        else fromFile(body.source.name, body.source.text);
-      } catch (err) {
-        if (err instanceof SourceError) return c.json({ error: err.message, suggestPaste: err.suggestPaste }, 400);
-        throw err;
-      }
+      const { source, sources, minutes, voice } = parsed.data;
+      // A list of one is a single-source walk, the same as before playlists.
+      const list = sources ?? [source!];
+      const problem = sourceProblem(list);
+      if (problem) return c.json({ error: problem.message, suggestPaste: problem.suggestPaste }, 400);
       const h = await health();
       if (!h.ready) return c.json({ error: 'Something still needs to be installed.', setup: true }, 503);
-      const record = await jobs.create(body);
+      const record = await jobs.create(list.length === 1 ? { source: list[0]!, minutes, voice } : { sources: list, minutes, voice });
       return c.json({ id: record.id }, 202);
     })
     .get('/:id/events', async (c) => {

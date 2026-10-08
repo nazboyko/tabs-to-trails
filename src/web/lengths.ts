@@ -29,6 +29,8 @@ export interface AskedInput {
   scriptWords: number;
   /** The plan's estimate of the whole source read in full. */
   fullSeconds: number;
+  /** How many sources the walk reads, one after another. */
+  pieces?: number;
 }
 
 /** The line under the measured length on the Ready screen. */
@@ -38,7 +40,11 @@ export function askedLine(w: AskedInput): string {
   if (actual > target * (1 + OVER_TOLERANCE)) {
     return `You asked for ${clock(target)}. This one runs ${clock(actual - target)} longer${w.mode === 'full' ? ', read in full' : ''}.`;
   }
-  if (w.mode === 'full' && actual < target * 0.9) return `You asked for ${clock(target)}. This one is shorter, so nothing was cut.`;
+  if (w.mode === 'full' && actual < target * 0.9) {
+    // Nothing is padded: a short source makes a short walk, and the line says so.
+    const shorter = (w.pieces ?? 1) > 1 ? 'Together they run shorter' : 'This one is shorter';
+    return `You asked for ${clock(target)}. ${shorter}, so nothing was cut.`;
+  }
   if (w.mode === 'full') return `You asked for ${clock(target)} · read in full`;
   // The full-length estimate uses this walk's own measured pace.
   const fullEstimate = w.scriptWords > 0 ? (actual * w.sourceWords) / w.scriptWords : w.fullSeconds;
