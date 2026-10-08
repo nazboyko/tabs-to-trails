@@ -43,6 +43,7 @@ h3 { margin: 0; font-size: 20px; }
 .shots img { width: 100%; height: auto; border: 1px solid var(--rule); border-radius: 12px; background: var(--card); }
 .shots figcaption { font-size: 14px; color: var(--muted); margin-top: 6px; }
 figure { margin: 0; }
+.tag { margin: 8px 0 0; font-size: 22px; font-weight: 600; }
 .sample { display: flex; flex-direction: column; gap: 12px; padding: 24px; margin-bottom: 18px; background: var(--card); border: 1px solid var(--rule); border-radius: 16px; }
 .sample .meta { font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 14px; color: var(--muted); }
 .sample audio { width: 100%; }
@@ -79,7 +80,8 @@ code { font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 15px; 
 <main class="wrap">
   <div class="hero">
     <h1>Turn your reading backlog into a walk.</h1>
-    <p class="lede">Paste the article you keep meaning to read and say how long your walk is. Your own computer turns it into an MP3 of that length, with Gemma 4 and the Kokoro voice running locally. Scan the code, pocket the phone, go.</p>
+    <p class="tag">Save tabs now. Walk them later.</p>
+    <p class="lede">Keep what you mean to read in one list, measured in walking minutes. When you have twenty minutes, pick 20: the app proposes what fits, and your own computer turns it into one MP3 of that length, with Gemma 4 and the Kokoro voice running locally. Scan the code, pocket the phone, go.</p>
     <div class="actions">
       <a class="btn primary" href="#samples">Hear two samples</a>
       <a class="btn" href="{{repo}}">Get it on GitHub</a>
@@ -91,8 +93,8 @@ code { font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 15px; 
   <section aria-labelledby="how">
     <h2 id="how">About a minute at the screen</h2>
     <ol class="steps">
-      <li><span class="n">1</span><h3>Paste</h3><p>A link, some text or a .md file, or up to eight of them, read one after another. Things you already meant to read.</p></li>
-      <li><span class="n">2</span><h3>Pick a length</h3><p>10 to 60 minutes, or the whole thing. The plan uses the voice's measured pace.</p></li>
+      <li><span class="n">1</span><h3>Save</h3><p>Links, text or a .md file, or one click on the tab you are reading. Each is read once, when you save it, and kept on your computer.</p></li>
+      <li><span class="n">2</span><h3>Pick a length</h3><p>10 to 60 minutes, or everything ticked. The app picks what fits and shows how each piece will be read.</p></li>
       <li><span class="n">3</span><h3>Pocket it</h3><p>Scan the QR code, download the MP3, press play. A chime and a cue tell you when you're halfway.</p></li>
     </ol>
   </section>
@@ -100,7 +102,7 @@ code { font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 15px; 
   <section aria-labelledby="screens">
     <h2 id="screens">What it looks like</h2>
     <div class="shots">
-      <figure><img src="screenshots/ready.png" width="1280" height="1161" alt="The Ready screen: the walk's measured length in large numbers, a QR code for the phone, and Download MP3 and Read the script buttons."><figcaption>Ready to walk: the measured length, the QR code and the download.</figcaption></figure>
+      <figure><img src="screenshots/home.png" width="1280" height="1851" alt="The home screen: five things waiting for a walk with their minutes, 20 minutes picked, and the walk it proposes, about 21 minutes for 20."><figcaption>Waiting for a walk: pick a length and the list proposes what fits.</figcaption></figure>
       <figure><img src="screenshots/phone-playing.png" width="390" height="844" alt="The phone's playing screen, dark green: Pocket your phone, a progress line with the halfway mark, and back, pause and forward buttons."><figcaption>The only dark screen: on the phone, while you walk.</figcaption></figure>
     </div>
   </section>
