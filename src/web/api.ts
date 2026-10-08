@@ -144,6 +144,22 @@ export type WalkDetail =
       share: { url: string; qr: string } | null;
     };
 
+export interface ListItem {
+  id: string;
+  kind: 'link' | 'text' | 'file';
+  title: string;
+  label: string;
+  url?: string;
+  words: number;
+  minutes: number;
+  status: 'checking' | 'ready' | 'unreadable' | 'in_walk';
+  reason?: string;
+  savedAt: string;
+  seriesId?: string;
+  part?: number;
+  parts?: number;
+}
+
 export type SourcePayload =
   | { kind: 'url'; url: string }
   | { kind: 'text'; text: string; title?: string }
@@ -182,6 +198,29 @@ export const api = {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(sources.length === 1 ? { source: sources[0], minutes, voice } : { sources, minutes, voice }),
+    }),
+  list: () => call<{ items: ListItem[] }>('/api/list'),
+  save: (sources: SourcePayload[]) =>
+    call<{ added: ListItem[]; existing: ListItem[] }>('/api/list', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sources }),
+    }),
+  pasteInto: (id: string, text: string, title?: string) =>
+    call<ListItem>(`/api/list/${id}/text`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text, title }),
+    }),
+  removeItem: (id: string) => call<unknown>(`/api/list/${id}`, { method: 'DELETE' }),
+  reorder: (ids: string[]) =>
+    call<unknown>('/api/list/order', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids }) }),
+  /** A walk from list items, in the order given. */
+  buildItems: (items: string[], minutes: number | null, voice: VoiceKey) =>
+    call<{ id: string }>('/api/build', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ items, minutes, voice }),
     }),
   retry: (id: string) => call<{ id: string }>(`/api/build/${id}/retry`, { method: 'POST' }),
   cancel: (id: string) => call<unknown>(`/api/build/${id}`, { method: 'DELETE' }),

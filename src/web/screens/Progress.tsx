@@ -3,7 +3,7 @@ import { api, ApiError, watchBuild, type StageName, type StageStatus, type Statu
 import { ScreenTitle } from '../common';
 import { Check, Notice } from '../icons';
 import { navigate } from '../router';
-import { LINK_ERROR_KEY } from './Build';
+import { LINK_ERROR_KEY } from './Home';
 
 type NotReady = Extract<WalkDetail, { ready: false }>;
 
@@ -126,10 +126,10 @@ export function Progress({ detail, onDone, onGone }: { detail: NotReady; onDone:
     try {
       if (failed) sessionStorage.setItem(LINK_ERROR_KEY, failed.message);
     } catch {
-      // The Build screen still opens; it just cannot repeat the message.
+      // The home screen still opens; it just cannot repeat the message.
     }
-    const url = detail.request?.url;
-    navigate(url ? `/?url=${encodeURIComponent(url)}` : '/?tab=text', true);
+    // The rows of a cancelled walk are back in the list; the Text box opens for the one that failed.
+    navigate('/?tab=text', true);
   };
 
   return (

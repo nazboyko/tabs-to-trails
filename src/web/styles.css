@@ -527,24 +527,69 @@ legend {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
-.queue {
+/* Home: the walk list */
+
+.step-head {
   display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.queue h2 {
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
   margin: 0;
+  padding: 0;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink);
 }
 
-.queue ol {
+legend.step-head {
+  margin-bottom: 12px;
+}
+
+.step-head .n {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--ink);
+  color: var(--card);
+  font-size: 12px;
+  letter-spacing: 0;
+}
+
+.step-head .sum {
+  margin-left: auto;
+  font-family: var(--mono);
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--muted);
+  text-align: right;
+}
+
+.empty-line {
+  margin: 0;
+  font-size: 16px;
+  color: var(--muted);
+}
+
+.saved-status:empty {
+  display: none;
+}
+
+.waiting {
   list-style: none;
   margin: 0;
   padding: 0;
   border-top: 1px solid var(--rule);
 }
 
-.queue li {
+.waiting li {
   display: flex;
   align-items: center;
   gap: 10px;
@@ -555,53 +600,203 @@ legend {
   cursor: grab;
 }
 
-.queue li.dragging {
+.waiting li.dragging {
   opacity: 0.5;
 }
 
-.queue li.over-above {
+.waiting li.over-above {
   box-shadow: inset 0 2px 0 var(--ink);
 }
 
-.queue li.over-below {
+.waiting li.over-below {
   box-shadow: inset 0 -2px 0 var(--ink);
 }
 
-.queue .grip {
+.waiting li.unreadable .what {
+  padding: 6px 10px;
+  border: 1.5px dashed var(--orange-text);
+  border-radius: 8px;
+}
+
+.waiting .grip {
   display: flex;
   flex: none;
 }
 
-.queue .n {
+.waiting .tick {
+  display: flex;
   flex: none;
-  min-width: 18px;
-  font-family: var(--mono);
-  font-size: 13px;
-  color: var(--muted);
-  text-align: right;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
 }
 
-.queue .what {
+.waiting .tick input {
+  width: 20px;
+  height: 20px;
+  margin: 0;
+  accent-color: var(--ink);
+  cursor: pointer;
+}
+
+.waiting .tick-space {
+  width: 20px;
+}
+
+.waiting .what {
   flex: 1 1 auto;
   min-width: 0;
   display: flex;
   flex-direction: column;
 }
 
-.queue .name {
+.waiting .name {
   font-weight: 500;
   overflow-wrap: anywhere;
 }
 
-.queue .kind {
+.waiting label.name {
+  cursor: pointer;
+}
+
+.waiting .note {
   font-size: 13px;
   color: var(--muted);
 }
 
-.queue .moves {
+.waiting li.unreadable .note {
+  color: var(--error-text);
+}
+
+.waiting li.checking .name {
+  color: var(--muted);
+}
+
+.waiting .mins {
+  flex: none;
+  min-width: 52px;
+  font-family: var(--mono);
+  font-size: 14px;
+  text-align: right;
+}
+
+.waiting .moves {
   display: flex;
   flex: none;
   gap: 2px;
+}
+
+/* Quieter than the rows they move; full ink on hover and focus. */
+.waiting .icon-btn svg {
+  stroke: var(--ink-soft);
+}
+
+.waiting .icon-btn:hover svg,
+.waiting .icon-btn:focus-visible svg {
+  stroke: var(--ink);
+}
+
+.link-button.inline {
+  min-height: 0;
+  padding: 0;
+  font-size: 13px;
+  color: var(--error-text);
+}
+
+.add-open {
+  align-self: flex-start;
+}
+
+.add-box {
+  padding: 16px;
+  border: 1px solid var(--rule);
+  border-radius: 12px;
+  background: var(--paper);
+}
+
+.paste-for {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  overflow-wrap: anywhere;
+}
+
+.add-actions {
+  align-items: center;
+}
+
+.add-actions > .btn {
+  flex: 0 0 auto;
+}
+
+.your-walk {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border-top: 1px solid var(--rule);
+}
+
+.your-walk li {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--rule);
+}
+
+.your-walk .name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.your-walk .mins {
+  flex: none;
+  font-family: var(--mono);
+  font-size: 14px;
+}
+
+.options summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 44px;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  list-style: none;
+}
+
+.options summary::-webkit-details-marker {
+  display: none;
+}
+
+.options .chev {
+  width: 9px;
+  height: 9px;
+  border-right: 2px solid var(--ink);
+  border-bottom: 2px solid var(--ink);
+  transform: rotate(45deg);
+  margin-right: 6px;
+}
+
+.options[open] .chev {
+  transform: rotate(-135deg);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .waiting li.fresh {
+    animation: fresh-row 2.4s ease-out;
+  }
+}
+
+@keyframes fresh-row {
+  from {
+    background: #e7efe6;
+  }
+  to {
+    background: var(--card);
+  }
 }
 
 .icon-btn {
@@ -1412,20 +1607,37 @@ mark.check {
 }
 
 @media (max-width: 480px) {
-  .queue li {
-    flex-wrap: wrap;
+  /* Two lines per row: the title beside its minutes, the arrows under the minutes. */
+  .waiting li {
+    display: grid;
+    grid-template-columns: 24px minmax(0, 1fr) auto;
+    grid-template-areas: 'tick what mins' 'tick what moves';
+    column-gap: 10px;
+    align-items: center;
   }
 
-  .queue .grip {
+  .waiting .grip {
     display: none;
   }
 
-  .queue .what {
-    flex-basis: calc(100% - 40px);
+  .waiting .tick {
+    grid-area: tick;
+    align-self: start;
+    padding-top: 2px;
   }
 
-  .queue .moves {
-    margin-left: auto;
+  .waiting .what {
+    grid-area: what;
+    align-self: start;
+  }
+
+  .waiting .mins {
+    grid-area: mins;
+  }
+
+  .waiting .moves {
+    grid-area: moves;
+    justify-self: end;
   }
 
   .site-header {
