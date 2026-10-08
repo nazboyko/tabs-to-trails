@@ -59,8 +59,9 @@ export function wordNumbers(text: string): string[] {
       current = (current ?? 0) + UNITS[w]!;
       found.push(UNITS[w]!);
     } else if (w in TENS) {
-      if (current !== null) flush();
-      current = TENS[w]!;
+      // "one hundred and fifty" is 150; "twenty thirty" is two numbers.
+      if (current !== null && current % 100 !== 0) flush();
+      current = (current ?? 0) + TENS[w]!;
       found.push(TENS[w]!);
     } else if (w in SCALES) {
       const scale = SCALES[w]!;

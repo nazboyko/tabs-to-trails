@@ -18,6 +18,14 @@ describe('wordNumbers', () => {
     expect(wordNumbers('three thousand')).toContain('3000');
     expect(wordNumbers('the third time, twice')).toEqual(expect.arrayContaining(['3', '2']));
   });
+
+  it('adds tens after a hundred, as in a Wikipedia sentence that was flagged by mistake', () => {
+    expect(wordNumbers('chimpanzees expend one-hundred and fifty percent')).toContain('150');
+    expect(wordNumbers('two hundred thirty-five')).toContain('235');
+    expect(newNumbers('one-hundred and fifty percent of the energy', '150 percent of the energy')).toEqual([]);
+    // Two tens in a row are still two numbers.
+    expect(wordNumbers('twenty thirty')).not.toContain('50');
+  });
 });
 
 describe('newNumbers', () => {
