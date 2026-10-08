@@ -8,12 +8,13 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { loadConfig, type VoiceKey } from '../config.js';
 import { effectiveWpm, storedCalibration } from '../audio/calibrate.js';
-import { charsPerWord } from '../pipeline.js';
+import { charsPerWord, walkSource } from '../pipeline.js';
 import { readSource, type SavedInput, type SourceInput } from '../source/index.js';
-import { pieceSections, sourceLabel } from '../source/pieces.js';
+import { pieceSections, readPieces, sourceLabel, type Piece } from '../source/pieces.js';
 import { SourceError, type SourceDoc } from '../source/types.js';
 import { isWalkId, newId, readJson, writeFileAtomic, writeJson } from '../walks/store.js';
 import { checked, DEFAULT_WPM, linkKey, MAX_CHECKS, ordered, reorder, unreadable, type ListItem } from './items.js';
+import { previewFrom, type WalkPreview } from './preview.js';
 
 export type ReadFn = (input: SourceInput, signal?: AbortSignal) => Promise<SourceDoc>;
 
@@ -182,6 +183,28 @@ export class WalkList {
     if (!item?.doc) throw new Error('That item has not been read yet.');
     await fs.copyFile(path.join(this.dir(id), 'source.md'), path.join(walkDirPath, file));
     return { kind: 'saved', itemId: id, file, doc: item.doc };
+  }
+
+  /** Saved items read the way a build reads their copies: one piece each, in the order given. */
+  async pieces(ids: string[]): Promise<Piece[]> {
+    const inputs: SavedInput[] = [];
+    for (const id of ids) {
+      const item = await this.get(id);
+      if (!item?.doc) throw new SourceError(`${item?.title ?? 'That item'} has not been read yet.`, false);
+      inputs.push({ kind: 'saved', itemId: id, file: 'source.md', doc: item.doc });
+    }
+    const read: ReadFn = async (input) => {
+      const saved = input as SavedInput;
+      return { ...saved.doc, markdown: await fs.readFile(path.join(this.dir(saved.itemId), 'source.md'), 'utf8') };
+    };
+    return (await readPieces(inputs, read)).pieces;
+  }
+
+  /** The panel's plan for these items and this length, at the pace minutes are estimated with. */
+  async preview(ids: string[], minutes: number | null, voice: VoiceKey): Promise<WalkPreview> {
+    const pieces = await this.pieces(ids);
+    const wpm = await listWpm(voice, charsPerWord(walkSource(pieces, []).sections));
+    return previewFrom(pieces, ids, minutes, wpm);
   }
 
   /** On start: rows that were being checked when the process stopped are checked again. */

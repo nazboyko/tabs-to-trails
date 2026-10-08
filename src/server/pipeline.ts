@@ -9,10 +9,10 @@ import { DTYPE, VOICES, voiceText } from './audio/kokoro.js';
 import { clock, placeCues, type CueItem, type Segment } from './audio/timeline.js';
 import { concatAudio, decodeWav, encodeWav, SAMPLE_RATE, seconds, silence } from './audio/wav.js';
 import { readSource, type SourceInput } from './source/index.js';
-import { bridgeText, readPieces, threeQuarterText, walkTitle, wantsThreeQuarter, type Skipped } from './source/pieces.js';
+import { bridgeText, readPieces, threeQuarterText, walkTitle, wantsThreeQuarter, type Piece, type Skipped } from './source/pieces.js';
 import { countWords, sectionLabel, type Section } from './source/sections.js';
 import type { SourceDoc } from './source/types.js';
-import { carriedTarget, groupSections, planWalk, SECTION_GAP, walkMode, wordsToSeconds, type Plan } from './script/budget.js';
+import { carriedTarget, groupSections, planWalk, SECTION_GAP, walkMode, wordsToSeconds, type Plan, type PlanInput } from './script/budget.js';
 import { scoreSections } from './script/importance.js';
 import { closingQuestion, fitsQuestionRequest } from './script/question.js';
 import { readAsWritten, rewriteSection, type ScriptSection } from './script/rewrite.js';
@@ -177,19 +177,30 @@ async function stageRead(dir: string, req: BuildRequest, signal?: AbortSignal) {
   let sections = await readJson<Section[]>(dir, 'sections.json');
   if (info && sections) return { info, sections };
   const { pieces, skipped } = await readPieces(requestSources(req), sourceReader(dir), signal);
-  let n = 0;
-  sections = pieces.flatMap((p, piece) =>
-    p.sections.map((s) => ({ ...s, id: `s${String(++n).padStart(2, '0')}`, ...(pieces.length > 1 ? { piece } : {}) })),
-  );
-  const words = sections.reduce((total, s) => total + s.words, 0);
+  ({ info, sections } = walkSource(pieces, skipped));
   const first = pieces[0]!.doc;
   const single = pieces.length === 1;
-  info = {
+  const markdown = single ? first.markdown : pieces.map((p) => `# ${p.doc.title}\n\n${p.doc.markdown}`).join('\n\n---\n\n');
+  await writeFileAtomic(path.join(dir, 'source.md'), markdown);
+  await writeJson(dir, 'sections.json', sections);
+  await writeJson(dir, 'source.json', info);
+  return { info, sections };
+}
+
+/** The walk's sections (ids s01, s02... across pieces) and what it says about its source, from the pieces read. */
+export function walkSource(pieces: Piece[], skipped: Skipped[]): { info: SourceInfo; sections: Section[] } {
+  let n = 0;
+  const sections = pieces.flatMap((p, piece) =>
+    p.sections.map((s) => ({ ...s, id: `s${String(++n).padStart(2, '0')}`, ...(pieces.length > 1 ? { piece } : {}) })),
+  );
+  const first = pieces[0]!.doc;
+  const single = pieces.length === 1;
+  const info: SourceInfo = {
     kind: single ? first.kind : 'playlist',
     title: single ? first.title : walkTitle(pieces.map((p) => p.doc.title)),
     url: single ? first.url : undefined,
     byline: single ? first.byline : undefined,
-    words,
+    words: sections.reduce((total, s) => total + s.words, 0),
     sections: sections.length,
     leftOut: pieces.flatMap((p) => p.leftOut),
     pieces: pieces.map((p, piece) => ({
@@ -197,16 +208,19 @@ async function stageRead(dir: string, req: BuildRequest, signal?: AbortSignal) {
       kind: p.doc.kind,
       url: p.doc.url,
       byline: p.doc.byline,
-      words: sections!.filter((s) => (s.piece ?? 0) === piece).reduce((total, s) => total + s.words, 0),
+      words: sections.filter((s) => (s.piece ?? 0) === piece).reduce((total, s) => total + s.words, 0),
       sections: p.sections.length,
     })),
     skipped,
   };
-  const markdown = single ? first.markdown : pieces.map((p) => `# ${p.doc.title}\n\n${p.doc.markdown}`).join('\n\n---\n\n');
-  await writeFileAtomic(path.join(dir, 'source.md'), markdown);
-  await writeJson(dir, 'sections.json', sections);
-  await writeJson(dir, 'source.json', info);
   return { info, sections };
+}
+
+/** The first plan of a walk, before grouping and importance: the preview on the home screen shows this same plan. */
+export function firstPlan(info: SourceInfo, sections: Section[], minutes: number | null, wpm: number): { plan: Plan; input: PlanInput } {
+  const targetSeconds = minutes === null ? null : minutes * 60;
+  const input = { sections, targetSeconds, wpm, fixedSeconds: fixedSecondsEstimate(info, wpm, targetSeconds) };
+  return { plan: planWalk(input), input };
 }
 
 function fixedSecondsEstimate(info: SourceInfo, wpm: number, targetSeconds: number | null): number {
@@ -259,9 +273,9 @@ async function stagePlan(dir: string, req: BuildRequest, info: SourceInfo, secti
   if (saved && savedSections) return { plan: saved, planSections: savedSections };
   const cal = await calibration(req.voice);
   const wpm = effectiveWpm(cal, charsPerWord(sections));
-  const targetSeconds = req.minutes === null ? null : req.minutes * 60;
-  const input = { sections, targetSeconds, wpm, fixedSeconds: fixedSecondsEstimate(info, wpm, targetSeconds) };
-  let plan = planWalk(input);
+  const first = firstPlan(info, sections, req.minutes, wpm);
+  const input = first.input;
+  let plan = first.plan;
   let planSections = sections;
   if (plan.mode === 'condensed') {
     // Grouping and importance stay inside each piece of a playlist.

@@ -94,6 +94,8 @@ export async function walkDetail(id: string, jobs: Jobs, port: number) {
     },
     segments: timeline.segments,
     leftOut: info?.leftOut ?? [],
+    /** List items this walk took out of the waiting list. */
+    closed: record.request.items?.length ?? 0,
     pieces: meta.pieces ?? [],
     skipped: meta.skipped ?? [],
     share: url ? { url, qr: await qrDataUrl(url) } : null,
@@ -150,7 +152,8 @@ export function walkRoutes(jobs: Jobs) {
           break;
         }
       }
-      return c.json({ walks: all.slice(0, 20), active, total: all.length, lan: (loadConfig().SHARE_HOST ?? lanAddress()) !== null });
+      const walked = { count: all.length, seconds: Math.round(all.reduce((n, w) => n + w.actualSeconds, 0)) };
+      return c.json({ walks: all.slice(0, 20), active, total: all.length, walked, lan: (loadConfig().SHARE_HOST ?? lanAddress()) !== null });
     })
     .get('/:id', async (c) => {
       const id = c.req.param('id');

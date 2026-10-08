@@ -1,5 +1,7 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
+import { VOICE_KEYS } from '../config.js';
+import { MAX_PIECES } from '../source/pieces.js';
 import { viewStatus, type ListItem } from '../list/items.js';
 import type { WalkList } from '../list/store.js';
 import { MAX_FILE_BYTES, MAX_TEXT_CHARS } from '../source/paste.js';
@@ -18,6 +20,11 @@ const Source = z.discriminatedUnion('kind', [
 export const SaveBody = z.object({ sources: z.array(Source).min(1).max(50) });
 export const PasteBody = z.object({ text: z.string().max(MAX_TEXT_CHARS), title: z.string().max(300).optional() });
 export const OrderBody = z.object({ ids: z.array(Id).max(10_000) });
+export const PreviewBody = z.object({
+  items: z.array(Id).min(1).max(MAX_PIECES),
+  minutes: z.union([z.literal(10), z.literal(20), z.literal(30), z.literal(45), z.literal(60), z.null()]),
+  voice: z.enum(VOICE_KEYS),
+});
 
 export type ItemView = Omit<ListItem, 'doc' | 'walkId' | 'checkedAt'>;
 
@@ -45,6 +52,17 @@ export function listRoutes(list: WalkList, jobs: Jobs) {
       try {
         const { added, existing } = await list.add(parsed.data.sources);
         return c.json({ added: await Promise.all(added.map((i) => view(i, jobs))), existing: await Promise.all(existing.map((i) => view(i, jobs))) }, 201);
+      } catch (err) {
+        if (err instanceof SourceError) return c.json({ error: err.message }, 400);
+        throw err;
+      }
+    })
+    .post('/preview', async (c) => {
+      if (!json(c.req.header('content-type'))) return c.json({ error: BAD }, 415);
+      const parsed = PreviewBody.safeParse(await c.req.json().catch(() => null));
+      if (!parsed.success) return c.json({ error: BAD }, 400);
+      try {
+        return c.json(await list.preview(parsed.data.items, parsed.data.minutes, parsed.data.voice));
       } catch (err) {
         if (err instanceof SourceError) return c.json({ error: err.message }, 400);
         throw err;
