@@ -420,6 +420,12 @@ function Phone() {
           <Play />
           Play it here instead
         </button>
+        <a className="link-button" style={{ alignSelf: 'center', minHeight: 48 }} href={`${base}/audiobook?${query}`} download={info.fileName.replace(/\.mp3$/, '.m4b')} onClick={() => setView('downloaded')}>
+          Download as audiobook
+        </a>
+        <p className="small center" style={{ marginTop: -8 }}>
+          Remembers your place and lets you skip by section in an audiobook app.
+        </p>
       </div>
       <p className="small center" style={{ marginTop: 28, fontSize: 13 }}>
         Made on your computer. Nothing was uploaded.

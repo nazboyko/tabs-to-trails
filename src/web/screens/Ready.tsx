@@ -172,12 +172,20 @@ export function Ready({ detail: d, arrived = false }: { detail: ReadyDetail; arr
             <Download />
             Download MP3
           </a>
-          <a className="btn" href={`/walk/${d.id}/script`} onClick={onLink} style={{ minHeight: 52 }}>
-            Read the script
+          <a className="btn" href={`/api/walks/${d.id}/audiobook`} download={d.meta.fileName.replace(/\.mp3$/, '.m4b')} style={{ minHeight: 52 }}>
+            Download as audiobook
           </a>
         </div>
         <div className="file-line">
           {d.meta.fileName} · {megabytes(d.meta.bytes)}
+        </div>
+        <p className="small" style={{ margin: 0 }}>
+          The audiobook remembers your place and lets you skip by section in an audiobook app.
+        </p>
+        <div className="row">
+          <a className="btn" href={`/walk/${d.id}/script`} onClick={onLink} style={{ minHeight: 52 }}>
+            Read the script
+          </a>
         </div>
       </div>
 
