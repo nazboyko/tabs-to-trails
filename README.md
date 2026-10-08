@@ -4,9 +4,9 @@ Turn your reading backlog into a walk.
 
 ![The Ready screen: a measured Walk Edition of Thoreau's "Walking", a QR code for the phone and a Download MP3 button](docs/screenshots/ready.png)
 
-You paste a link or some text and say how long your walk is. Your computer turns it into an MP3 of that length: Gemma 4 rewrites the text for listening and the Kokoro voice reads it, both running on your own machine. You scan a QR code, put the phone in your pocket and go.
+You paste a link or some text (or a list of up to eight) and say how long your walk is. Your computer turns it into an MP3 of that length: Gemma 4 rewrites the text for listening and the Kokoro voice reads it, both running on your own machine. You scan a QR code, put the phone in your pocket and go.
 
-The file holds everything the walk needs: a short intro, the piece itself, a chime and a cue at the halfway point so you know when to turn around, one question for the way home, and a sign-off. Once the file is on the phone, the walk needs nothing else.
+The file holds everything the walk needs: a short intro, the piece itself, a chime and a cue at the halfway point so you know when to turn around, one question for the way home, and a sign-off. A walk made from several pieces says "Next:" and the title before each new one, and a walk of 45 minutes or more gets a second chime at three quarters that says how many minutes are left. Once the file is on the phone, the walk needs nothing else.
 
 Two samples, made with this repository, are on the [project page](https://nazboyko.github.io/tabs-to-trails/) and in [`samples/`](samples/).
 
@@ -33,7 +33,7 @@ To get a walk onto your phone, keep the phone on the same Wi-Fi as the computer 
 
 ```mermaid
 flowchart LR
-  A[Link, text or .md/.txt file] --> B[Markdown sections]
+  A[Up to 8 links, texts or .md/.txt files] --> B[Markdown sections]
   B --> C[Plan: full or condensed, words per section]
   C --> D[Gemma 4 rewrite per section]
   D --> E[Number guard]
@@ -42,12 +42,12 @@ flowchart LR
   G --> H[MP3 + script + QR]
 ```
 
-1. **Read.** dev.to links go through the DEV API, without a challenge post's submission line and Prize Categories section. Other links are fetched once (http and https only, 10 seconds, 5 MB, 3 redirects, HTML only), parsed without running the page's scripts, and cleaned with Mozilla Readability. Reference lists and link lists are left out too, and the Ready screen names everything left out. Images are skipped unless their alt text states data, like a chart with its numbers; that alt text is then read as a sentence.
-2. **Plan.** The text is split into sections by heading. The app measures once how fast the chosen voice speaks (characters per second on a fixed passage) and turns your walk length into a word budget. If the source fits, it is read in full. If not, Gemma rates how much each section matters, and the budget is split by length times importance.
-3. **Rewrite.** In full mode Gemma only describes code and tables in a few sentences; prose is read as written. A table is told by its finding, for example "thinking off took 2.4 seconds". A description that only says "the numbers are listed" gets one more try, and sentences that repeat the paragraph around the block are dropped. In condensed mode each section gets one request with its word target. A rewrite that runs well over or under its budget gets one more pass, and any shortfall or overshoot carries into the sections that follow.
+1. **Read.** dev.to links go through the DEV API, without a challenge post's submission line and Prize Categories section. Other links are fetched once (http and https only, 10 seconds, 5 MB, 3 redirects, HTML only), parsed without running the page's scripts, and cleaned with Mozilla Readability. Reference lists and link lists are left out too, and the Ready screen names everything left out. Images are skipped unless their alt text states data, like a chart with its numbers; that alt text is then read as a sentence. Several sources are read one after another into one walk. One that cannot be read is skipped, and the Ready screen names it and says why; only a list where nothing can be read fails.
+2. **Plan.** The text is split into sections by heading. The app measures once how fast the chosen voice speaks (characters per second on a fixed passage) and turns your walk length into a word budget. If the source fits, it is read in full. If not, Gemma rates how much each section matters, and the budget is split by length times importance. In a walk of several pieces, each piece first gets a share of the time in proportion to its length, so a short piece is not squeezed out by a long one. Pieces that are shorter than the walk all together are read in full and the walk comes out shorter; it is never padded.
+3. **Rewrite.** In full mode Gemma only describes code and tables in a few sentences; prose is read as written. A table is told by its finding, for example "thinking off took 2.4 seconds". A description that only says "the numbers are listed" gets one more try, and sentences that repeat the paragraph around the block are dropped. In condensed mode each section gets one request with its word target. A rewrite that runs well over or under its budget gets one more pass, and any shortfall or overshoot carries into the sections that follow in the same piece.
 4. **Guard.** Any number in a rewrite that is not in its source section sends the section back once with the number named. If it comes back again, the script marks it "Check this number".
 5. **Voice.** Kokoro reads the script in sentence groups, each kept under the model's phoneme limit so nothing is cut off. The app measures the audio. If the walk runs more than 5% over, it shortens the largest condensed section, and a walk read in full condenses its least important section instead (Gemma ranks the sections). More than 8% under, it gives the time back to the condensed section that left out the most. It does this once and voices only that section again; a walk that is still over says so on the Ready screen, with its real length.
-6. **Pack.** ffmpeg makes a chime from two sine tones and encodes a mono 64 kbps MP3. The halfway cue goes at the sentence boundary nearest the middle of the finished walk.
+6. **Pack.** ffmpeg makes a chime from two sine tones and encodes a mono 64 kbps MP3. The halfway cue goes at the sentence boundary nearest the middle of the finished walk; between two pieces it goes before "Next:", never between that line and its piece. Walks of 45 minutes or more get a second cue near three quarters that says how many minutes are left, with the number taken from the measured audio after the cue is placed. The Ready screen, the script and the phone page list the pieces with their lengths.
 
 Every stage writes its result into `walks/<id>/`, so a build that stops (a crash, a closed laptop) picks up where it left off on the next start.
 
@@ -62,13 +62,14 @@ Measured on an Apple M5 Max with 64 GB, `gemma4:e4b` through Ollama 0.35.1 with 
 | A code-heavy blog post | 10:00 | 9:22 | 4:36 | 2,147 / 1,210 | 12.5 s | 61.8 s |
 | A Wikipedia article with tables | 10:00 | 9:56 | 4:47 | 1,451 / 1,085 | 4.9 s | 73 s |
 | A long Wikipedia article | 20:00 | 18:42 | 9:24 | 8,007 / 2,391 | 42.5 s | 122.4 s |
+| Three pieces in one walk: the author's DEV post, Thoreau part one and Wikipedia's "Walking" (a fourth, dead link skipped) | 1:00:00 | 1:00:48 | 30:22 | 10,546 / 9,076 | 24.4 s | 382.6 s |
 
-The first two rows are the samples in this repository. The other three were measured while the rewrite was still being tuned, so a run today gives slightly different numbers. Kokoro reads about nine times faster than real time on this machine, so most of the waiting is the voice.
+The first two rows are the samples in this repository. The next three were measured while the rewrite was still being tuned, so a run today gives slightly different numbers. The hour-long walk took 6 minutes 59 seconds from the command to the MP3, has its second cue at 45:26 ("About 15 minutes left."), and the file is 29.2 MB. Kokoro reads about nine times faster than real time on this machine, so most of the waiting is the voice.
 
 ## Privacy
 
 - The model and the voice run on your computer. The app sends nothing to a cloud service.
-- The only outside requests the server makes are fetching the link you typed (or the DEV API for a dev.to link). Ollama downloads the model once and the voice weights download once from Hugging Face on the first walk.
+- The only outside requests the server makes are fetching the links you typed (or the DEV API for a dev.to link). Ollama downloads the model once and the voice weights download once from Hugging Face on the first walk.
 - Paste mode works with the internet off once both are installed.
 - The server listens on your local network so your phone can fetch the file. Only the phone page and its audio answer to other devices, and only with the walk's random token. Everything under `/api` answers only to this computer.
 - Walks stay in the `walks/` folder until you delete it.
@@ -103,7 +104,10 @@ All optional, in `.env` or the environment:
 ```
 npm run walk -- https://dev.to/user/some-post --minutes 10
 npm run walk -- notes.md --minutes whole --voice emma
+npm run walk -- https://example.com/one notes.md https://example.com/two --minutes 45
 ```
+
+Several sources make one walk, read in the order given.
 
 The terminal and the app share the `walks/` folder, so a walk made in one shows up in the other.
 
