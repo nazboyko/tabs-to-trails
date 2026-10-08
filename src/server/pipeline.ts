@@ -5,6 +5,7 @@ import { loadConfig, type VoiceKey } from './config.js';
 import { calibration, effectiveWpm, spokenChars } from './audio/calibrate.js';
 import { encodeMp3, makeChime } from './audio/assemble.js';
 import { chaptersFrom } from './audio/chapters.js';
+import { buildTimings, type Timings } from './audio/timings.js';
 import { decideFit, needsScores, type FitDecision, type FitSection } from './audio/fit.js';
 import { DTYPE, VOICES, voiceText } from './audio/kokoro.js';
 import { clock, placeCues, type CueItem, type Segment } from './audio/timeline.js';
@@ -107,7 +108,7 @@ interface VoicedFile {
   text: string;
 }
 
-interface VoiceState {
+export interface VoiceState {
   sections: Record<string, VoicedFile>;
   /** The app's own lines: intro, halfway, threequarter, question, outro and bridge-N. */
   app: Partial<Record<string, VoicedFile>>;
@@ -450,6 +451,36 @@ async function stageVoice(
 
 const toSamples = (s: number) => Math.round(s * SAMPLE_RATE);
 
+/** Read-along timings from what the walk folder holds: the script, the voiced parts and the timeline. */
+export function timingsFor(
+  script: Script,
+  voice: VoiceState,
+  timeline: { seconds: number; segments: Segment[] },
+  audio?: Record<string, Float32Array | undefined>,
+): Timings {
+  const appText: Record<string, string> = {};
+  for (const [key, v] of Object.entries(voice.app)) if (v && !key.startsWith('bridge-')) appText[key] = v.text;
+  return buildTimings({
+    seconds: timeline.seconds,
+    sampleRate: SAMPLE_RATE,
+    segments: timeline.segments,
+    sections: script.sections.map((s) => ({ id: s.id, label: sectionLabel(s), text: s.text, piece: s.piece })),
+    voiced: Object.fromEntries(Object.entries(voice.sections).map(([id, v]) => [id, v ? { samples: v.samples, boundaries: v.boundaries } : undefined])),
+    appText,
+    audio,
+  });
+}
+
+/** Each section's voiced audio from the walk folder, for timings measured against it. */
+export async function sectionAudioOf(dir: string, script: Script, voice: VoiceState): Promise<Record<string, Float32Array | undefined>> {
+  const out: Record<string, Float32Array | undefined> = {};
+  for (const s of script.sections) {
+    const v = voice.sections[s.id];
+    out[s.id] = v ? await loadSamples(dir, v).catch(() => undefined) : undefined;
+  }
+  return out;
+}
+
 /** Pause, chime, pause, the spoken cue and a pause after it. */
 function cueBlockLength(chime: number, spoken: number): number {
   return toSamples(PAUSE.beforeChime) + chime + toSamples(PAUSE.afterChime) + spoken + toSamples(PAUSE.afterCue);
@@ -734,6 +765,11 @@ async function stagePack(
   await fs.rm(wavPath, { force: true });
   const bytes = (await fs.stat(path.join(dir, 'final.mp3'))).size;
   await writeJson(dir, 'timeline.json', { seconds: actualSeconds, halfwaySeconds, threeQuarterSeconds, segments, chapters });
+  await writeJson(
+    dir,
+    'timings.json',
+    timingsFor(script, voice, { seconds: actualSeconds, segments }, Object.fromEntries(script.sections.map((s, i) => [s.id, sectionAudio[i]]))),
+  );
 
   // Where each piece starts (its bridge, or its first section) and how long it runs.
   const pieces = (info.pieces ?? [{ title: info.title, kind: info.kind as SourceDoc['kind'], url: info.url, words: info.words, sections: info.sections }]).map(

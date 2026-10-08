@@ -43,7 +43,7 @@ function sameOrigin(origin: string | undefined, host: string | undefined): boole
 }
 
 /** The only paths the network may reach: the phone page, its data and audio, and static files. */
-const PUBLIC = /^\/w\/[a-f0-9]{12}(?:\/info|\/audio|\/audiobook)?$|^\/assets\/[\w.-]+$|^\/favicon\.svg$/;
+const PUBLIC = /^\/w\/[a-f0-9]{12}(?:\/info|\/audio|\/audiobook|\/timings)?$|^\/assets\/[\w.-]+$|^\/favicon\.svg$/;
 
 async function readOptional(file: string): Promise<string | null> {
   try {

@@ -5,7 +5,7 @@ import { KokoroTTS } from 'kokoro-js';
 import { phonemize } from 'phonemizer';
 import { splitSentences } from '../source/sections.js';
 import { loadConfig, type VoiceKey } from '../config.js';
-import { chunkText } from './speakable.js';
+import { CHUNK_GAP, chunkText, PARAGRAPH_GAP, PIECE_GAP } from './speakable.js';
 import { concatAudio, SAMPLE_RATE, silence } from './wav.js';
 
 export const MODEL_ID = 'onnx-community/Kokoro-82M-v1.0-ONNX';
@@ -52,11 +52,6 @@ export async function fitPhonemes(text: string, measure = phonemeLength, depth =
   return [...(await fitPhonemes(a, measure, depth + 1)), ...(await fitPhonemes(b, measure, depth + 1))];
 }
 
-/** Pauses between sentence groups and between paragraphs, in seconds. */
-export const CHUNK_GAP = 0.2;
-/** Pause where one chunk had to be split to fit the phoneme limit. */
-export const PIECE_GAP = 0.1;
-export const PARAGRAPH_GAP = 0.45;
 
 let loading: Promise<KokoroTTS> | null = null;
 

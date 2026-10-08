@@ -8,12 +8,13 @@ import { loadConfig } from '../config.js';
 import { encodeAudiobook } from '../audio/assemble.js';
 import { chaptersFrom, type Chapter } from '../audio/chapters.js';
 import type { Segment } from '../audio/timeline.js';
-import { HALFWAY_TEXT, OUTRO_TEXT, QUESTION_LEAD, requestSources, type BuildRequest, type Meta, type Script, type SourceInfo } from '../pipeline.js';
+import type { Timings } from '../audio/timings.js';
+import { HALFWAY_TEXT, OUTRO_TEXT, QUESTION_LEAD, requestSources, sectionAudioOf, timingsFor, type BuildRequest, type Meta, type Script, type SourceInfo, type VoiceState } from '../pipeline.js';
 import type { Plan } from '../script/budget.js';
 import { sectionLabel } from '../source/sections.js';
 import type { Jobs } from '../walks/jobs.js';
 import { lanAddress, qrDataUrl, shareUrl, tokenMatches } from '../walks/share.js';
-import { exists, isWalkId, listWalkIds, readJson, walkDir } from '../walks/store.js';
+import { exists, isWalkId, listWalkIds, readJson, walkDir, writeJson } from '../walks/store.js';
 
 interface Timeline {
   seconds: number;
@@ -27,6 +28,23 @@ interface Timeline {
 /** The walk's chapters, as written into its files. */
 export function walkChapters(timeline: Timeline, meta: Meta): Chapter[] {
   return timeline.chapters ?? chaptersFrom(timeline.segments, timeline.seconds, (meta.pieces ?? []).map((p) => p.title));
+}
+
+/** Read-along timings; walks made before them get theirs worked out once and kept. */
+export async function walkTimings(id: string): Promise<Timings | null> {
+  const dir = walkDir(id);
+  const saved = await readJson<Timings>(dir, 'timings.json');
+  if (saved) return saved;
+  const [meta, script, voice, timeline] = await Promise.all([
+    readJson<Meta>(dir, 'meta.json'),
+    readJson<Script>(dir, 'script.json'),
+    readJson<VoiceState>(dir, 'voice.json'),
+    readJson<Timeline>(dir, 'timeline.json'),
+  ]);
+  if (!meta || !script || !voice || !timeline) return null;
+  const timings = timingsFor(script, voice, timeline, await sectionAudioOf(dir, script, voice));
+  await writeJson(dir, 'timings.json', timings).catch(() => undefined);
+  return timings;
 }
 
 const building = new Map<string, Promise<void>>();
@@ -213,6 +231,11 @@ export function walkRoutes(jobs: Jobs) {
       if (!isWalkId(id)) return c.text('Not found', 404);
       return sendAudiobook(c, id);
     })
+    .get('/:id/timings', async (c) => {
+      const id = c.req.param('id');
+      const timings = isWalkId(id) ? await walkTimings(id) : null;
+      return timings ? c.json(timings) : c.json({ error: 'This walk has no timings yet.' }, 404);
+    })
     .get('/:id/source', async (c) => {
       const id = c.req.param('id');
       if (!isWalkId(id)) return c.text('Not found', 404);
@@ -263,6 +286,11 @@ export function phoneRoutes(jobs: Jobs, phonePage: () => Promise<string | null>)
       const id = await allowed(c);
       if (!id) return c.text(expired, 404);
       return sendAudio(c, id, c.req.query('download') === '1');
+    })
+    .get('/:id/timings', async (c) => {
+      const id = await allowed(c);
+      const timings = id ? await walkTimings(id) : null;
+      return timings ? c.json(timings, 200, { 'Cache-Control': 'no-store' }) : c.json({ error: expired }, 404);
     })
     .on(['GET', 'HEAD'], '/:id/audiobook', async (c) => {
       const id = await allowed(c);

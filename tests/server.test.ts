@@ -45,6 +45,7 @@ describe('access rule', () => {
     expect(req({ remote: '192.0.2.10', path: '/w/abcdef123456/info' })).toBe('ok');
     expect(req({ remote: '192.0.2.10', path: '/w/abcdef123456/audio' })).toBe('ok');
     expect(req({ remote: '192.0.2.10', path: '/w/abcdef123456/audiobook' })).toBe('ok');
+    expect(req({ remote: '192.0.2.10', path: '/w/abcdef123456/timings' })).toBe('ok');
     expect(req({ remote: '192.0.2.10', path: '/api/walks/abcdef123456/audiobook' })).toBe('hidden');
     expect(req({ remote: '192.0.2.10', path: '/w/..%2fapi/walks' })).toBe('hidden');
     expect(req({ remote: '192.0.2.10', path: '/assets/..%2f..%2findex.html' })).toBe('hidden');

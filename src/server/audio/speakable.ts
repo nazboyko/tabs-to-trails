@@ -25,6 +25,12 @@ export function speakable(text: string): string {
   return s.replace(/[*_#`|<>{}[\]]/g, ' ').replace(/\s+/g, ' ').trim();
 }
 
+/** Pauses between sentence groups and between paragraphs, in seconds. */
+export const CHUNK_GAP = 0.2;
+/** Pause where one chunk had to be split to fit the phoneme limit. */
+export const PIECE_GAP = 0.1;
+export const PARAGRAPH_GAP = 0.45;
+
 /** Kokoro reads at most 510 tokens per call, so text is voiced in sentence groups. */
 export const MAX_CHUNK_CHARS = 320;
 
