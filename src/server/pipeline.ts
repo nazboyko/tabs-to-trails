@@ -4,6 +4,7 @@ import path from 'node:path';
 import { loadConfig, type VoiceKey } from './config.js';
 import { calibration, effectiveWpm, spokenChars } from './audio/calibrate.js';
 import { encodeMp3, makeChime } from './audio/assemble.js';
+import { chaptersFrom } from './audio/chapters.js';
 import { decideFit, needsScores, type FitDecision, type FitSection } from './audio/fit.js';
 import { DTYPE, VOICES, voiceText } from './audio/kokoro.js';
 import { clock, placeCues, type CueItem, type Segment } from './audio/timeline.js';
@@ -671,10 +672,11 @@ async function stagePack(
   const wavPath = path.join(dir, 'final.wav');
   await writeFileAtomic(wavPath, encodeWav(finalAudio));
   const date = createdAt.slice(0, 10);
-  await encodeMp3(wavPath, path.join(dir, 'final.mp3'), { title: info.title, date, comment: 'Made on this computer with Gemma and Kokoro' });
+  const chapters = chaptersFrom(segments, actualSeconds, pieceTitles);
+  await encodeMp3(wavPath, path.join(dir, 'final.mp3'), { title: info.title, date, comment: 'Made on this computer with Gemma and Kokoro' }, chapters);
   await fs.rm(wavPath, { force: true });
   const bytes = (await fs.stat(path.join(dir, 'final.mp3'))).size;
-  await writeJson(dir, 'timeline.json', { seconds: actualSeconds, halfwaySeconds, threeQuarterSeconds, segments });
+  await writeJson(dir, 'timeline.json', { seconds: actualSeconds, halfwaySeconds, threeQuarterSeconds, segments, chapters });
 
   // Where each piece starts (its bridge, or its first section) and how long it runs.
   const pieces = (info.pieces ?? [{ title: info.title, kind: info.kind as SourceDoc['kind'], url: info.url, words: info.words, sections: info.sections }]).map(

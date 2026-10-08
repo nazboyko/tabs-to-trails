@@ -5,6 +5,8 @@ import { Readable } from 'node:stream';
 import type { Context } from 'hono';
 import { Hono } from 'hono';
 import { loadConfig } from '../config.js';
+import { encodeAudiobook } from '../audio/assemble.js';
+import { chaptersFrom, type Chapter } from '../audio/chapters.js';
 import type { Segment } from '../audio/timeline.js';
 import { HALFWAY_TEXT, OUTRO_TEXT, QUESTION_LEAD, requestSources, type BuildRequest, type Meta, type Script, type SourceInfo } from '../pipeline.js';
 import type { Plan } from '../script/budget.js';
@@ -18,6 +20,33 @@ interface Timeline {
   halfwaySeconds: number | null;
   threeQuarterSeconds?: number | null;
   segments: Segment[];
+  /** Missing in walks made before chapters; then they are worked out from the segments. */
+  chapters?: Chapter[];
+}
+
+/** The walk's chapters, as written into its files. */
+export function walkChapters(timeline: Timeline, meta: Meta): Chapter[] {
+  return timeline.chapters ?? chaptersFrom(timeline.segments, timeline.seconds, (meta.pieces ?? []).map((p) => p.title));
+}
+
+const building = new Map<string, Promise<void>>();
+
+/** The audiobook file, made from the MP3 on the first request and kept beside it. */
+export async function audiobookFile(id: string): Promise<string | null> {
+  const dir = walkDir(id);
+  const file = path.join(dir, 'final.m4b');
+  if (await exists(file)) return file;
+  const [meta, timeline] = await Promise.all([readJson<Meta>(dir, 'meta.json'), readJson<Timeline>(dir, 'timeline.json')]);
+  if (!meta || !timeline || !(await exists(path.join(dir, 'final.mp3')))) return null;
+  let job = building.get(id);
+  if (!job) {
+    job = encodeAudiobook(path.join(dir, 'final.mp3'), file, { title: meta.title, date: meta.createdAt.slice(0, 10) }, walkChapters(timeline, meta)).finally(() =>
+      building.delete(id),
+    );
+    building.set(id, job);
+  }
+  await job;
+  return file;
 }
 
 /** The links the walk was asked for, one per line, so a failed build can offer them again. */
@@ -107,13 +136,25 @@ export async function sendAudio(c: Context, id: string, download: boolean): Prom
   const file = path.join(walkDir(id), 'final.mp3');
   const meta = await readJson<Meta>(walkDir(id), 'meta.json');
   if (!meta || !(await exists(file))) return c.text('This walk has no audio yet.', 404);
+  return sendFile(c, file, 'audio/mpeg', download ? meta.fileName : null);
+}
+
+/** The audiobook (.m4b), always as a download. */
+export async function sendAudiobook(c: Context, id: string): Promise<Response> {
+  const meta = await readJson<Meta>(walkDir(id), 'meta.json');
+  const file = meta ? await audiobookFile(id).catch(() => null) : null;
+  if (!meta || !file) return c.text('This walk has no audio yet.', 404);
+  return sendFile(c, file, 'audio/mp4', meta.fileName.replace(/\.mp3$/, '.m4b'));
+}
+
+async function sendFile(c: Context, file: string, type: string, attachment: string | null): Promise<Response> {
   const size = (await fsp.stat(file)).size;
   const headers: Record<string, string> = {
-    'Content-Type': 'audio/mpeg',
+    'Content-Type': type,
     'Accept-Ranges': 'bytes',
     'Cache-Control': 'private, max-age=3600',
   };
-  if (download) headers['Content-Disposition'] = `attachment; filename="${meta.fileName}"`;
+  if (attachment) headers['Content-Disposition'] = `attachment; filename="${attachment}"`;
   const range = c.req.header('range')?.match(/^bytes=(\d*)-(\d*)$/);
   let start = 0;
   let end = size - 1;
@@ -165,6 +206,11 @@ export function walkRoutes(jobs: Jobs) {
       if (!isWalkId(id)) return c.text('Not found', 404);
       return sendAudio(c, id, c.req.query('download') !== '0');
     })
+    .get('/:id/audiobook', async (c) => {
+      const id = c.req.param('id');
+      if (!isWalkId(id)) return c.text('Not found', 404);
+      return sendAudiobook(c, id);
+    })
     .get('/:id/source', async (c) => {
       const id = c.req.param('id');
       if (!isWalkId(id)) return c.text('Not found', 404);
@@ -215,5 +261,10 @@ export function phoneRoutes(jobs: Jobs, phonePage: () => Promise<string | null>)
       const id = await allowed(c);
       if (!id) return c.text(expired, 404);
       return sendAudio(c, id, c.req.query('download') === '1');
+    })
+    .on(['GET', 'HEAD'], '/:id/audiobook', async (c) => {
+      const id = await allowed(c);
+      if (!id) return c.text(expired, 404);
+      return sendAudiobook(c, id);
     });
 }
