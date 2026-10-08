@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { Fragment, useEffect, useRef, useState } from 'react';
 import { api, type AppLine, type ScriptSection, type WalkDetail } from '../api';
 import { Badge, ScreenTitle } from '../common';
 import { clock } from '../format';
@@ -8,8 +8,13 @@ import { onLink } from '../router';
 type ReadyDetail = Extract<WalkDetail, { ready: true }>;
 
 type Item =
-  | { kind: 'app'; label: string; line: AppLine; start: number }
+  | { kind: 'app'; label: string; line: AppLine; start: number; piece?: number }
   | { kind: 'section'; section: ScriptSection; start: number };
+
+interface Cue {
+  label: string;
+  line: AppLine;
+}
 
 /** Matches a guarded number in the text, with or without thousands separators. */
 function numberPattern(n: string): string {
@@ -37,27 +42,37 @@ function Marked({ text, numbers }: { text: string; numbers: string[] }) {
   );
 }
 
-/** True when the halfway cue plays in the middle of this section rather than between sections. */
-function cueInside(section: ScriptSection, halfway: AppLine | null): boolean {
-  return halfway?.start != null && halfway.start > section.start + 1 && halfway.start < section.start + section.seconds;
+/** True when a cue plays in the middle of this section rather than between sections. */
+function cueInside(section: ScriptSection, cue: AppLine | null): boolean {
+  return cue?.start != null && cue.start > section.start + 1 && cue.start < section.start + section.seconds;
 }
 
 /**
- * The script view shows the cue where it plays. The audio knows the exact
+ * The script view shows each cue where it plays. The audio knows the exact
  * spot; the text is split at the sentence end nearest the same share of it.
  */
-function splitAtCue(section: ScriptSection, halfway: AppLine | null): { text: string; cue?: AppLine }[] {
-  if (!halfway || !cueInside(section, halfway)) return [{ text: section.text }];
-  const share = (halfway.start! - section.start) / section.seconds;
-  const target = section.text.length * share;
-  let best = -1;
-  const ends = /[.!?]["'’”)]?(\s+)/g;
-  for (let m = ends.exec(section.text); m; m = ends.exec(section.text)) {
-    const at = m.index + m[0].length;
-    if (best < 0 || Math.abs(at - target) < Math.abs(best - target)) best = at;
+function splitAtCues(section: ScriptSection, cues: Cue[]): { text: string; cue?: Cue }[] {
+  const inside = cues.filter((c) => cueInside(section, c.line)).sort((a, b) => a.line.start! - b.line.start!);
+  if (!inside.length) return [{ text: section.text }];
+  const ends: number[] = [];
+  const re = /[.!?]["'’”)]?(\s+)/g;
+  for (let m = re.exec(section.text); m; m = re.exec(section.text)) ends.push(m.index + m[0].length);
+  const parts: { text: string; cue?: Cue }[] = [];
+  // A cue with no sentence end left to split at is shown after the text.
+  const late: Cue[] = [];
+  let from = 0;
+  for (const cue of inside) {
+    const target = section.text.length * ((cue.line.start! - section.start) / section.seconds);
+    let best = -1;
+    for (const at of ends) if (at > from && (best < 0 || Math.abs(at - target) < Math.abs(best - target))) best = at;
+    if (best > from && best < section.text.length) {
+      parts.push({ text: section.text.slice(from, best).trim() }, { text: '', cue });
+      from = best;
+    } else late.push(cue);
   }
-  if (best <= 0 || best >= section.text.length) return [{ text: section.text }, { text: '', cue: halfway }];
-  return [{ text: section.text.slice(0, best).trim() }, { text: '', cue: halfway }, { text: section.text.slice(best).trim() }];
+  parts.push({ text: section.text.slice(from).trim() });
+  for (const cue of late) parts.push({ text: '', cue });
+  return parts;
 }
 
 function quoteList(numbers: string[]): string {
@@ -65,14 +80,26 @@ function quoteList(numbers: string[]): string {
   return q.length === 1 ? q[0]! : `${q.slice(0, -1).join(', ')} and ${q.at(-1)}`;
 }
 
-function scriptAsText(d: ReadyDetail, items: Item[]): string {
+/** The piece an item starts, when it is the first of a new piece in a playlist. */
+function pieceOf(item: Item): number | null {
+  if (item.kind === 'section') return item.section.piece;
+  return item.piece ?? null;
+}
+
+function scriptAsText(d: ReadyDetail, items: Item[], cues: Cue[]): string {
   const lines = [`${d.title}`, `Walk Edition, ${clock(d.meta.actualSeconds)}`, ''];
   const all = [...items];
-  if (d.app.halfway && !items.some((i) => i.kind === 'app' && i.line === d.app.halfway)) {
-    all.push({ kind: 'app', label: 'halfway cue, after a chime', line: d.app.halfway, start: d.app.halfway.start ?? 0 });
-    all.sort((a, b) => a.start - b.start);
+  for (const cue of cues) {
+    if (!items.some((i) => i.kind === 'app' && i.line === cue.line)) all.push({ kind: 'app', label: cue.label, line: cue.line, start: cue.line.start ?? 0 });
   }
+  all.sort((a, b) => a.start - b.start);
+  let piece = -1;
   for (const item of all) {
+    const p = d.pieces.length > 1 ? pieceOf(item) : null;
+    if (p !== null && p !== piece) {
+      piece = p;
+      lines.push(`Piece ${p + 1} of ${d.pieces.length}: ${d.pieces[p]?.title ?? ''} (${clock(d.pieces[p]?.seconds ?? 0)})`, '');
+    }
     if (item.kind === 'app') lines.push(`[${clock(item.start)}] The app (${item.label}): ${item.line.text}`, '');
     else lines.push(`[${clock(item.start)}] ${item.section.label} (${item.section.coverage})`, item.section.text, '');
   }
@@ -122,19 +149,24 @@ export function Script({ id }: { id: string }) {
     );
   }
   const d = detail;
+  const cues: Cue[] = [
+    ...(d.app.halfway ? [{ label: 'halfway cue, after a chime', line: d.app.halfway }] : []),
+    ...(d.app.threeQuarter ? [{ label: 'three-quarter cue, after a chime', line: d.app.threeQuarter }] : []),
+  ];
   const items: Item[] = [
     { kind: 'app' as const, label: 'intro', line: d.app.intro, start: d.app.intro.start ?? 0 },
     ...d.sections.map((s) => ({ kind: 'section' as const, section: s, start: s.start })),
-    ...(d.app.halfway && !d.sections.some((s) => cueInside(s, d.app.halfway))
-      ? [{ kind: 'app' as const, label: 'halfway cue, after a chime', line: d.app.halfway, start: d.app.halfway.start ?? 0 }]
-      : []),
+    ...d.app.bridges.map((b) => ({ kind: 'app' as const, label: 'next piece', line: { text: b.text, start: b.start }, start: b.start, piece: b.piece })),
+    ...cues
+      .filter((c) => !d.sections.some((s) => cueInside(s, c.line)))
+      .map((c) => ({ kind: 'app' as const, label: c.label, line: c.line, start: c.line.start ?? 0 })),
     ...(d.app.question ? [{ kind: 'app' as const, label: 'a question for the last stretch', line: d.app.question, start: d.app.question.start ?? 0 }] : []),
     { kind: 'app' as const, label: 'sign-off', line: d.app.outro, start: d.app.outro.start ?? d.meta.actualSeconds },
   ].sort((a, b) => a.start - b.start);
 
   const copy = async () => {
     try {
-      await navigator.clipboard.writeText(scriptAsText(d, items));
+      await navigator.clipboard.writeText(scriptAsText(d, items, cues));
       setCopied(true);
       window.clearTimeout(timer.current);
       timer.current = window.setTimeout(() => setCopied(false), 1500);
@@ -160,9 +192,22 @@ export function Script({ id }: { id: string }) {
       </div>
 
       <div className="script-list">
-        {items.map((item) =>
-          item.kind === 'app' ? (
-            <div className="app-says" key={item.label}>
+        {items.map((item, index) => {
+          // In a playlist, each piece opens with its title and length.
+          const p = d.pieces.length > 1 ? pieceOf(item) : null;
+          const before = index > 0 ? items.slice(0, index).map(pieceOf).filter((x) => x !== null).at(-1) : undefined;
+          const head =
+            p !== null && p !== (before ?? -1) ? (
+              <h2 className="piece-head" key={`piece-${p}`}>
+                <span>
+                  <span className="n">Piece {p + 1} of {d.pieces.length}</span>
+                  {d.pieces[p]?.title}
+                </span>
+                <span className="mono">{clock(d.pieces[p]?.seconds ?? 0)}</span>
+              </h2>
+            ) : null;
+          const body = item.kind === 'app' ? (
+            <div className="app-says" key={`${item.label}-${item.start}`}>
               <div className="head">
                 <span>The app · {item.label}</span>
                 <span className="mono" style={{ fontWeight: 500 }}>
@@ -202,16 +247,16 @@ export function Script({ id }: { id: string }) {
                   </div>
                 )}
                 {item.section.note && <div className="plain-note">{item.section.note}</div>}
-                {splitAtCue(item.section, d.app.halfway).map((part, i) =>
+                {splitAtCues(item.section, cues).map((part, i) =>
                   part.cue ? (
                     <div className="app-says" key={`cue-${i}`}>
                       <div className="head">
-                        <span>The app · halfway cue, after a chime</span>
+                        <span>The app · {part.cue.label}</span>
                         <span className="mono" style={{ fontWeight: 500 }}>
-                          {clock(part.cue.start ?? 0)}
+                          {clock(part.cue.line.start ?? 0)}
                         </span>
                       </div>
-                      <p>{part.cue.text}</p>
+                      <p>{part.cue.line.text}</p>
                     </div>
                   ) : (
                     part.text.split(/\n\s*\n/).map((para, j) => (
@@ -223,8 +268,14 @@ export function Script({ id }: { id: string }) {
                 )}
               </div>
             </details>
-          ),
-        )}
+          );
+          return (
+            <Fragment key={item.kind === 'section' ? item.section.id : `${item.label}-${item.start}`}>
+              {head}
+              {body}
+            </Fragment>
+          );
+        })}
       </div>
 
       <p className="small">Generated from the source text only. AI output can still contain mistakes. Review the script for anything important.</p>

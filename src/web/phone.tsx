@@ -10,9 +10,12 @@ interface Info {
   title: string;
   actualSeconds: number;
   halfwaySeconds: number | null;
+  threeQuarterSeconds?: number | null;
   bytes: number;
   fileName: string;
   chapters: { label: string; start: number }[];
+  /** The pieces of a playlist walk; empty for a single source. */
+  pieces?: { title: string; start: number; seconds: number }[];
 }
 
 type View = 'home' | 'downloaded' | 'loading' | 'playing';
@@ -223,7 +226,15 @@ function Phone() {
     const length = audio.current?.duration && Number.isFinite(audio.current.duration) ? audio.current.duration : info.actualSeconds;
     const pct = Math.min(100, (now / length) * 100);
     const half = info.halfwaySeconds === null ? null : (info.halfwaySeconds / length) * 100;
-    const chapter = [...info.chapters].reverse().find((c) => c.start <= now + 0.5);
+    const threeQuarter = info.threeQuarterSeconds ? (info.threeQuarterSeconds / length) * 100 : null;
+    const pieces = info.pieces ?? [];
+    // In a playlist, "Now" names the piece; in a single source, the section.
+    const pieceNow = pieces.findLastIndex((p) => p.start <= now + 0.5);
+    const chapter = pieces.length
+      ? pieceNow >= 0
+        ? { label: `${pieces[pieceNow]!.title} (${pieceNow + 1} of ${pieces.length})` }
+        : undefined
+      : [...info.chapters].reverse().find((c) => c.start <= now + 0.5);
     return (
       <div className="phone">
         <div className="top">
@@ -249,6 +260,7 @@ function Phone() {
               <div className="rail" />
               <div className="done" style={{ width: `${pct}%` }} />
               {half !== null && <div className="half" style={{ left: `${half}%` }} />}
+              {threeQuarter !== null && <div className="half" style={{ left: `${threeQuarter}%` }} />}
               <div className="knob" style={{ left: `${pct}%` }} />
             </div>
             <div className="times">
@@ -380,6 +392,19 @@ function Phone() {
           <span className="mono">{clock(info.actualSeconds)}</span>
           {info.halfwaySeconds !== null && <span>Halfway cue at {clock(info.halfwaySeconds)}</span>}
         </div>
+        {(info.pieces?.length ?? 0) > 1 && (
+          <ol className="phone-pieces">
+            {info.pieces!.map((p, i) => (
+              <li key={i}>
+                <span className="title">{p.title}</span>
+                <span className="mono">
+                  <span className="visually-hidden">runs </span>
+                  {clock(p.seconds)}
+                </span>
+              </li>
+            ))}
+          </ol>
+        )}
       </div>
       <div className="actions">
         <a className="btn primary" href={download} download={info.fileName} onClick={() => setView('downloaded')}>

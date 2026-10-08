@@ -67,11 +67,26 @@ export interface Meta {
   createdAt: string;
   finishedAt: string;
   source: { kind: string; url?: string; byline?: string };
+  threeQuarterSeconds?: number | null;
+}
+
+export interface Piece {
+  title: string;
+  kind: string;
+  url?: string;
+  start: number;
+  seconds: number;
+}
+
+export interface Skipped {
+  label: string;
+  reason: string;
 }
 
 export interface ScriptSection {
   id: string;
   label: string;
+  piece: number;
   coverage: Coverage;
   adapted: ('code' | 'table')[];
   checkNumbers: string[];
@@ -92,7 +107,8 @@ export interface Segment {
   kind: 'app' | 'source';
   label: string;
   sectionId?: string;
-  role?: 'intro' | 'halfway' | 'question' | 'outro';
+  piece?: number;
+  role?: 'intro' | 'halfway' | 'threequarter' | 'bridge' | 'question' | 'outro';
   start: number;
   end: number;
 }
@@ -113,9 +129,18 @@ export type WalkDetail =
       meta: Meta;
       plan: { mode: 'full' | 'condensed'; targetSeconds: number | null; fullSeconds: number; tooLong: boolean };
       sections: ScriptSection[];
-      app: { intro: AppLine; halfway: AppLine | null; question: AppLine | null; outro: AppLine };
+      app: {
+        intro: AppLine;
+        halfway: AppLine | null;
+        threeQuarter: AppLine | null;
+        bridges: { piece: number; text: string; start: number }[];
+        question: AppLine | null;
+        outro: AppLine;
+      };
       segments: Segment[];
       leftOut: string[];
+      pieces: Piece[];
+      skipped: Skipped[];
       share: { url: string; qr: string } | null;
     };
 
@@ -151,11 +176,12 @@ export const api = {
   voices: () => call<Voice[]>('/api/voices'),
   walks: () => call<WalkList>('/api/walks'),
   walk: (id: string) => call<WalkDetail>(`/api/walks/${id}`),
-  build: (source: SourcePayload, minutes: number | null, voice: VoiceKey) =>
+  // One source goes as `source`, as it always has; several make a playlist walk.
+  build: (sources: SourcePayload[], minutes: number | null, voice: VoiceKey) =>
     call<{ id: string }>('/api/build', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ source, minutes, voice }),
+      body: JSON.stringify(sources.length === 1 ? { source: sources[0], minutes, voice } : { sources, minutes, voice }),
     }),
   retry: (id: string) => call<{ id: string }>(`/api/build/${id}/retry`, { method: 'POST' }),
   cancel: (id: string) => call<unknown>(`/api/build/${id}`, { method: 'DELETE' }),

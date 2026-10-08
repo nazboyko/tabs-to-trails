@@ -93,9 +93,9 @@ export function FileUp() {
   );
 }
 
-export function Grip() {
+export function Grip({ color = '#FFFCF5' }: { color?: string }) {
   return (
-    <svg width="16" height="16" viewBox="0 0 16 16" fill="#FFFCF5" aria-hidden="true">
+    <svg width="16" height="16" viewBox="0 0 16 16" fill={color} aria-hidden="true">
       <circle cx="5" cy="3.5" r="1.3" />
       <circle cx="11" cy="3.5" r="1.3" />
       <circle cx="5" cy="8" r="1.3" />
@@ -152,6 +152,30 @@ export function Tick({ color = '#D5DCCF' }: { color?: string }) {
   return (
     <svg width="18" height="18" viewBox="0 0 18 18" stroke={color} strokeWidth="1.8" {...base}>
       <path d="M3.5 9.5l3.5 3.5 7.5-8" />
+    </svg>
+  );
+}
+
+export function MoveUp() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 18 18" stroke="#1E3A2B" strokeWidth="1.8" {...base}>
+      <path d="M9 14.5v-11M4.5 8 9 3.5 13.5 8" />
+    </svg>
+  );
+}
+
+export function MoveDown() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 18 18" stroke="#1E3A2B" strokeWidth="1.8" {...base}>
+      <path d="M9 3.5v11M4.5 10 9 14.5 13.5 10" />
+    </svg>
+  );
+}
+
+export function Cross() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 18 18" stroke="#1E3A2B" strokeWidth="1.8" {...base}>
+      <path d="m4.5 4.5 9 9M13.5 4.5l-9 9" />
     </svg>
   );
 }

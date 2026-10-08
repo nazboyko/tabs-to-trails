@@ -63,6 +63,45 @@
   color: var(--muted);
 }
 
+.phone .phone-pieces {
+  list-style: none;
+  margin: 16px 0 0;
+  padding: 0;
+  border-top: 1px solid var(--rule);
+  counter-reset: piece;
+}
+
+.phone .phone-pieces li {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--rule);
+  font-size: 16px;
+  counter-increment: piece;
+}
+
+.phone .phone-pieces li::before {
+  content: counter(piece);
+  flex: none;
+  min-width: 16px;
+  font-family: var(--mono);
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.phone .phone-pieces .title {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.phone .phone-pieces .mono {
+  flex: none;
+  font-size: 14px;
+  color: var(--muted);
+}
+
 .phone .actions {
   display: flex;
   flex-direction: column;

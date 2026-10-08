@@ -504,6 +504,127 @@ legend {
   font-weight: 600;
 }
 
+/* Playlist: the list of pieces on the Build screen */
+
+.input.links {
+  height: auto;
+  min-height: 52px;
+  padding: 13px 16px;
+  line-height: 1.5;
+  resize: vertical;
+  overflow-wrap: anywhere;
+}
+
+.btn.add {
+  align-self: flex-start;
+  min-height: 44px;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.pills.lengths {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.queue {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.queue h2 {
+  margin: 0;
+}
+
+.queue ol {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border-top: 1px solid var(--rule);
+}
+
+.queue li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 60px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--rule);
+  background: var(--card);
+  cursor: grab;
+}
+
+.queue li.dragging {
+  opacity: 0.5;
+}
+
+.queue li.over-above {
+  box-shadow: inset 0 2px 0 var(--ink);
+}
+
+.queue li.over-below {
+  box-shadow: inset 0 -2px 0 var(--ink);
+}
+
+.queue .grip {
+  display: flex;
+  flex: none;
+}
+
+.queue .n {
+  flex: none;
+  min-width: 18px;
+  font-family: var(--mono);
+  font-size: 13px;
+  color: var(--muted);
+  text-align: right;
+}
+
+.queue .what {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.queue .name {
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+
+.queue .kind {
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.queue .moves {
+  display: flex;
+  flex: none;
+  gap: 2px;
+}
+
+.icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  cursor: pointer;
+}
+
+.icon-btn:hover {
+  background: rgba(30, 58, 43, 0.06);
+}
+
+.icon-btn[disabled] {
+  opacity: 0.3;
+  cursor: default;
+}
+
 /* Recent walks and bookmarklet */
 
 .recent ul {
@@ -823,6 +944,85 @@ legend {
   flex: none;
 }
 
+.skipped {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 12px 14px;
+  border: 1px solid var(--error-rule);
+  border-radius: 10px;
+  background: var(--error-soft);
+  color: var(--error-text);
+  font-size: 15px;
+}
+
+.skipped svg {
+  flex: none;
+  margin-top: 3px;
+}
+
+.skipped ul {
+  margin: 4px 0 0;
+  padding-left: 18px;
+}
+
+.skipped .label {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.pieces {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border-top: 1px solid var(--rule);
+}
+
+.pieces li {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--rule);
+}
+
+.pieces .n {
+  flex: none;
+  min-width: 18px;
+  font-family: var(--mono);
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.pieces .title {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+
+.pieces .time {
+  flex: none;
+  font-family: var(--mono);
+  font-size: 14px;
+  text-align: right;
+}
+
+.pieces .from {
+  display: block;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.made .piece-row th {
+  padding-top: 18px;
+  border-bottom: 1px solid var(--rule);
+  font-size: 14px;
+  color: var(--ink);
+  text-transform: none;
+  letter-spacing: 0;
+}
+
 .divider {
   height: 1px;
   background: var(--rule);
@@ -1011,6 +1211,33 @@ legend {
   gap: 12px;
 }
 
+.piece-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  margin: 18px 0 0;
+  font-family: var(--serif);
+  font-size: 22px;
+  font-weight: 500;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+
+.piece-head .n {
+  display: block;
+  margin-bottom: 2px;
+  font-family: var(--sans);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.piece-head .mono {
+  flex: none;
+  font-size: 14px;
+}
+
 .app-says {
   display: flex;
   flex-direction: column;
@@ -1185,6 +1412,22 @@ mark.check {
 }
 
 @media (max-width: 480px) {
+  .queue li {
+    flex-wrap: wrap;
+  }
+
+  .queue .grip {
+    display: none;
+  }
+
+  .queue .what {
+    flex-basis: calc(100% - 40px);
+  }
+
+  .queue .moves {
+    margin-left: auto;
+  }
+
   .site-header {
     padding: 16px 20px;
   }

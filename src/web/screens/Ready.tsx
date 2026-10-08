@@ -1,3 +1,4 @@
+import { Fragment } from 'react';
 import { Badge, ScreenTitle } from '../common';
 import type { WalkDetail } from '../api';
 import { clock, megabytes, plural, words } from '../format';
@@ -15,8 +16,12 @@ function asked(d: ReadyDetail): string {
     sourceWords: d.meta.sourceWords,
     scriptWords: d.meta.scriptWords,
     fullSeconds: d.plan.fullSeconds,
+    pieces: d.pieces.length,
   });
 }
+
+/** Where a cue sits on the timeline, as a share kept clear of the ends. */
+const place = (at: number, total: number) => Math.min(92, Math.max(8, (at / total) * 100));
 
 function sectionNotes(s: ReadyDetail['sections'][number]): { text: string; check?: boolean }[] {
   const notes: { text: string; check?: boolean }[] = [];
@@ -31,8 +36,13 @@ function Timeline({ d }: { d: ReadyDetail }) {
   const total = d.meta.actualSeconds;
   const order: string[] = [];
   for (const seg of d.segments) if (seg.sectionId && !order.includes(seg.sectionId)) order.push(seg.sectionId);
-  const halfway = d.app.halfway?.start ?? null;
-  const at = halfway === null ? null : Math.min(92, Math.max(8, (halfway / total) * 100));
+  // Sections alternate in shade; in a playlist, whole pieces do.
+  const shade = (seg: ReadyDetail['segments'][number]) =>
+    d.pieces.length > 1 ? (seg.piece ?? 0) % 2 === 1 : !!seg.sectionId && order.indexOf(seg.sectionId) % 2 === 1;
+  const cues = [
+    { label: 'Halfway cue', start: d.app.halfway?.start ?? null },
+    { label: '3/4 cue', start: d.app.threeQuarter?.start ?? null },
+  ].filter((c): c is { label: string; start: number } => c.start !== null);
   return (
     <div className="timeline">
       <div className="segs" aria-hidden="true">
@@ -40,7 +50,7 @@ function Timeline({ d }: { d: ReadyDetail }) {
           <div
             key={i}
             title={seg.label}
-            className={`seg ${seg.kind === 'app' ? 'app' : 'src'}${seg.sectionId && order.indexOf(seg.sectionId) % 2 === 1 ? ' alt' : ''}`}
+            className={`seg ${seg.kind === 'app' ? 'app' : 'src'}${shade(seg) ? ' alt' : ''}`}
             style={{ flex: `${Math.max(seg.end - seg.start, 1)} 1 0` }}
           />
         ))}
@@ -51,20 +61,32 @@ function Timeline({ d }: { d: ReadyDetail }) {
       <div className="t" style={{ right: 0 }} aria-hidden="true">
         {clock(total)}
       </div>
-      {at !== null && halfway !== null && (
-        <>
-          <div className="cue-line" style={{ left: `${at}%` }} aria-hidden="true" />
-          <div className="cue-label" style={{ left: `${at}%` }}>
-            Halfway cue
+      {cues.map((c) => (
+        <div key={c.label}>
+          <div className="cue-line" style={{ left: `${place(c.start, total)}%` }} aria-hidden="true" />
+          <div className="cue-label" style={{ left: `${place(c.start, total)}%` }}>
+            {c.label}
             <br />
             <span className="mono" style={{ fontWeight: 500 }}>
-              {clock(halfway)}
+              {clock(c.start)}
             </span>
           </div>
-        </>
-      )}
+        </div>
+      ))}
     </div>
   );
+}
+
+function legend(d: ReadyDetail): string {
+  const parts = [
+    'the intro',
+    d.app.bridges.length ? '“Next:” before each piece' : '',
+    'the halfway cue',
+    d.app.threeQuarter ? 'the three-quarter cue' : '',
+    d.app.question ? 'one question for the last stretch' : '',
+  ].filter(Boolean);
+  const source = d.pieces.length > 1 ? 'Green is the reading, one shade per piece.' : 'Green is the article.';
+  return `${source} Orange is the app talking: ${parts.join(', ')}, and the sign-off.`;
 }
 
 export function Ready({ detail: d, arrived = false }: { detail: ReadyDetail; arrived?: boolean }) {
@@ -97,6 +119,22 @@ export function Ready({ detail: d, arrived = false }: { detail: ReadyDetail; arr
           <span>{asked(d)}</span>
         </div>
       </div>
+
+      {d.skipped.length > 0 && (
+        <div className="skipped">
+          <Notice />
+          <div>
+            <strong>{d.skipped.length === 1 ? 'One piece was left out of this walk.' : `${d.skipped.length} pieces were left out of this walk.`}</strong>
+            <ul>
+              {d.skipped.map((s, i) => (
+                <li key={i}>
+                  <span className="label">{s.label}</span>: {s.reason}
+                </li>
+              ))}
+            </ul>
+          </div>
+        </div>
+      )}
 
       {d.share ? (
         <section className="qr-card" aria-labelledby="qr-title">
@@ -154,10 +192,28 @@ export function Ready({ detail: d, arrived = false }: { detail: ReadyDetail; arr
         <h2 id="hear-title" className="section-title">
           What you'll hear
         </h2>
+        {d.pieces.length > 1 && (
+          <ol className="pieces">
+            {d.pieces.map((p, i) => (
+              <li key={i}>
+                <span className="n" aria-hidden="true">
+                  {i + 1}
+                </span>
+                <span className="title">{p.title}</span>
+                <span className="time">
+                  <span className="visually-hidden">runs </span>
+                  {clock(p.seconds)}
+                  <span className="from">
+                    {' '}
+                    from {clock(p.start)}
+                  </span>
+                </span>
+              </li>
+            ))}
+          </ol>
+        )}
         <Timeline d={d} />
-        <p className="small">
-          Green is the article. Orange is the app talking: the intro, the halfway cue{d.app.question ? ', one question for the last stretch' : ''}, and the sign-off.
-        </p>
+        <p className="small">{legend(d)}</p>
       </section>
 
       <details className="made">
@@ -182,8 +238,16 @@ export function Ready({ detail: d, arrived = false }: { detail: ReadyDetail; arr
               </tr>
             </thead>
             <tbody>
-              {d.sections.map((s) => (
-                <tr key={s.id}>
+              {d.sections.map((s, i) => (
+                <Fragment key={s.id}>
+                  {d.pieces.length > 1 && (i === 0 || d.sections[i - 1]!.piece !== s.piece) && (
+                    <tr className="piece-row">
+                      <th scope="colgroup" colSpan={3}>
+                        {s.piece + 1}. {d.pieces[s.piece]?.title}
+                      </th>
+                    </tr>
+                  )}
+                <tr>
                   <td>
                     {s.label}
                     {sectionNotes(s).map((n) => (
@@ -197,6 +261,7 @@ export function Ready({ detail: d, arrived = false }: { detail: ReadyDetail; arr
                   </td>
                   <td className="num">{clock(s.seconds)}</td>
                 </tr>
+                </Fragment>
               ))}
             </tbody>
           </table>
