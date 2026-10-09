@@ -12,6 +12,8 @@ The file holds everything the walk needs: a short intro, the reading, a chime an
 
 Two samples, made with this repository, are on the [project page](https://nazboyko.github.io/tabs-to-trails/), where you can read along while they play, and in [`samples/`](samples/).
 
+Watch the demo video: [youtube.com/watch?v=ZHeU8dnJVQ8](https://www.youtube.com/watch?v=ZHeU8dnJVQ8). The article in it is ["Every Software Developer Has Blamed…"](https://dev.to/sylwia-lask/every-software-developer-has-blamed-3a1o) by Sylwia Laskowska.
+
 ## What makes it different
 
 - **You bring the reading.** The list holds what you already meant to read. A bookmarklet saves the tab you are on in one click.
